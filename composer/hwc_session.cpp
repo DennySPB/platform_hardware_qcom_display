@@ -3208,7 +3208,7 @@ HWC2::Error HWCSession::PresentDisplayInternal(hwc2_display_t display) {
   return HWC2::Error::None;
 }
 
-void HWCSession::DisplayPowerReset() {
+void HWCSession::PerformDisplayPowerReset() {
   // Acquire lock on all displays.
   for (hwc2_display_t display = HWC_DISPLAY_PRIMARY;
     display < HWCCallbacks::kNumDisplays; display++) {
@@ -3263,6 +3263,12 @@ void HWCSession::DisplayPowerReset() {
   }
 
   callbacks_.Refresh(vsync_source);
+}
+
+void HWCSession::DisplayPowerReset() {
+  // Do Power Reset in a different thread to avoid blocking of SDM event thread
+  // when disconnecting display.
+  std::future<void> power_reset_future = std::async(&HWCSession::PerformDisplayPowerReset, this);
 }
 
 void HWCSession::HandleSecureSession() {
