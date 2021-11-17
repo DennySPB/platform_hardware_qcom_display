@@ -3268,7 +3268,7 @@ void HWCSession::PerformDisplayPowerReset() {
 void HWCSession::DisplayPowerReset() {
   // Do Power Reset in a different thread to avoid blocking of SDM event thread
   // when disconnecting display.
-  std::future<void> power_reset_future = std::async(&HWCSession::PerformDisplayPowerReset, this);
+  std::thread(&HWCSession::PerformDisplayPowerReset, this).detach();
 }
 
 void HWCSession::HandleSecureSession() {
