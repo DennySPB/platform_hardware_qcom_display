@@ -25,6 +25,7 @@ cc_binary {
         "libbinder",
         "libhardware",
         "libhistogram",
+        "libprocessgroup",
         "libutils",
         "libcutils",
         "libsync",
