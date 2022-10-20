@@ -25,7 +25,6 @@ cc_binary {
         "libbinder",
         "libhardware",
         "libhistogram",
-        "libprocessgroup",
         "libutils",
         "libcutils",
         "libsync",
@@ -59,6 +58,10 @@ cc_binary {
         "android.hardware.graphics.allocator@3.0",
         "libdisplayconfig.qti",
         "libdrm",
+        "libprocessgroup",
+        "libbinder_ndk",
+        "android.hardware.power-V1-ndk",
+        "pixel-power-ext-V1-ndk",
     ],
     srcs: composer_srcs,
 

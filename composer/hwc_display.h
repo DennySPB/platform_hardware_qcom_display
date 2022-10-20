@@ -54,6 +54,24 @@ using VsyncPeriodChangeTimeline = composer_V2_4::VsyncPeriodChangeTimeline;
 using VsyncPeriodNanos = composer_V2_4::VsyncPeriodNanos;
 using ClientTargetProperty = composer_V2_4::IComposerClient::ClientTargetProperty;
 
+#include "worker.h"
+
+namespace aidl {
+namespace google {
+namespace hardware {
+namespace power {
+namespace extension {
+namespace pixel {
+
+class IPowerExt;
+
+} // namespace pixel
+} // namespace extension
+} // namespace power
+} // namespace hardware
+} // namespace google
+} // namespace aidl
+
 namespace sdm {
 
 class HWCToneMapper;
@@ -462,6 +480,8 @@ class HWCDisplay : public DisplayEventHandler {
                              int active_config_index, uint32_t num_configs) {};
 
  protected:
+  void updateRefreshRateHint();
+
   static uint32_t throttling_refresh_rate_;
   // Maximum number of layers supported by display manager.
   static const uint32_t kMaxLayerCount = 32;
@@ -592,6 +612,8 @@ class HWCDisplay : public DisplayEventHandler {
   hwc_region_t client_damage_region_ = {};
 
  private:
+  int32_t checkPowerHalExtHintSupport(const std::string& mode);
+
   void DumpInputBuffers(void);
   bool CanSkipSdmPrepare(uint32_t *num_types, uint32_t *num_requests);
   void UpdateRefreshRate();
@@ -612,6 +634,45 @@ class HWCDisplay : public DisplayEventHandler {
   bool game_supported_ = false;
   uint64_t elapse_timestamp_ = 0;
   int async_power_mode_ = 0;
+
+  /* Display hint to notify power hal */
+  class PowerHalHintWorker : public Worker {
+  public:
+      PowerHalHintWorker();
+      void signalRefreshRate(HWC2::PowerMode powerMode, uint32_t vsyncPeriod);
+      void signalIdle();
+  protected:
+      void Routine() override;
+  private:
+      int32_t connectPowerHalExt();
+      int32_t checkPowerHalExtHintSupport(const std::string& mode);
+      int32_t sendPowerHalExtHint(const std::string& mode, bool enabled);
+      int32_t checkRefreshRateHintSupport(int refreshRate);
+      int32_t updateRefreshRateHintInternal(HWC2::PowerMode powerMode,
+                                            uint32_t vsyncPeriod);
+      int32_t sendRefreshRateHint(int refreshRate, bool enabled);
+      int32_t checkIdleHintSupport();
+      int32_t updateIdleHint(uint64_t deadlineTime);
+      bool mNeedUpdateRefreshRateHint;
+      // previous refresh rate
+      int mPrevRefreshRate;
+      // the refresh rate whose hint failed to be disabled
+      int mPendingPrevRefreshRate;
+      // support list of refresh rate hints
+      std::map<int, bool> mRefreshRateHintSupportMap;
+      bool mIdleHintIsEnabled;
+      uint64_t mIdleHintDeadlineTime;
+      // whether idle hint support is checked
+      bool mIdleHintSupportIsChecked;
+      // whether idle hint is supported
+      bool mIdleHintIsSupported;
+      HWC2::PowerMode mPowerModeState;
+      VsyncPeriodNanos mVsyncPeriod;
+      // for power HAL extension hints
+      std::shared_ptr<aidl::google::hardware::power::extension::pixel::IPowerExt>
+               mPowerHalExtAidl;
+  };
+      PowerHalHintWorker mPowerHalHint;
 };
 
 inline int HWCDisplay::Perform(uint32_t operation, ...) {
