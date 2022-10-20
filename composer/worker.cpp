@@ -23,8 +23,8 @@ Worker::Worker(const char *name, int priority, bool is_rt)
     : name_(name), priority_(priority), is_rt_(is_rt), exit_(false), initialized_(false) {
 }
 Worker::~Worker() {
-  Exit();
 }
+
 int Worker::InitWorker() {
   std::lock_guard<std::mutex> lk(mutex_);
   if (initialized())

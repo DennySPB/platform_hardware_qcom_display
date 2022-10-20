@@ -70,13 +70,27 @@ HWCDisplay::PowerHalHintWorker::PowerHalHintWorker()
         mPrevRefreshRate(0),
         mPendingPrevRefreshRate(0),
         mIdleHintIsEnabled(false),
+        mForceUpdateIdleHint(false),
         mIdleHintDeadlineTime(0),
         mIdleHintSupportIsChecked(false),
         mIdleHintIsSupported(false),
         mPowerModeState(HWC2::PowerMode::Off),
         mVsyncPeriod(16666666),
-        mPowerHalExtAidl(nullptr) {
-    InitWorker();
+        mPowerHalExtAidl(nullptr),
+        mDeathRecipient(AIBinder_DeathRecipient_new(BinderDiedCallback)) {}
+
+HWCDisplay::PowerHalHintWorker::~PowerHalHintWorker() {
+    Exit();
+}
+
+int HWCDisplay::PowerHalHintWorker::Init() {
+    return InitWorker();
+}
+
+void HWCDisplay::PowerHalHintWorker::BinderDiedCallback(void *cookie) {
+    ALOGE("PowerHal is died");
+    auto powerHint = reinterpret_cast<PowerHalHintWorker *>(cookie);
+    powerHint->forceUpdateHints();
 }
 
 int32_t HWCDisplay::PowerHalHintWorker::connectPowerHalExt() {
@@ -87,11 +101,17 @@ int32_t HWCDisplay::PowerHalHintWorker::connectPowerHalExt() {
     ndk::SpAIBinder pwBinder = ndk::SpAIBinder(AServiceManager_getService(kInstance.c_str()));
     ndk::SpAIBinder pwExtBinder;
     AIBinder_getExtension(pwBinder.get(), pwExtBinder.getR());
+
     mPowerHalExtAidl = IPowerExt::fromBinder(pwExtBinder);
     if (!mPowerHalExtAidl) {
         DLOGE("failed to connect power HAL extension");
         return -EINVAL;
     }
+
+    AIBinder_linkToDeath(pwExtBinder.get(), mDeathRecipient.get(), reinterpret_cast<void *>(this));
+
+    forceUpdateHints();
+
     ALOGI("connect power HAL extension successfully");
     return android::NO_ERROR;
 }
@@ -264,14 +284,15 @@ int32_t HWCDisplay::PowerHalHintWorker::checkIdleHintSupport(void) {
     return ret;
 }
 
-int32_t HWCDisplay::PowerHalHintWorker::updateIdleHint(uint64_t deadlineTime) {
+int32_t HWCDisplay::PowerHalHintWorker::updateIdleHint(int64_t deadlineTime, bool forceUpdate) {
     int32_t ret = checkIdleHintSupport();
     if (ret != android::NO_ERROR) {
         return ret;
     }
-    bool enableIdleHint = (deadlineTime < systemTime(SYSTEM_TIME_MONOTONIC));
+    bool enableIdleHint =
+            (deadlineTime < systemTime(SYSTEM_TIME_MONOTONIC) && CC_LIKELY(deadlineTime > 0));
 
-    if (mIdleHintIsEnabled != enableIdleHint) {
+    if (mIdleHintIsEnabled != enableIdleHint || forceUpdate) {
         // DLOGI("idle hint = %d", enableIdleHint);
         ret = sendPowerHalExtHint("DISPLAY_IDLE", enableIdleHint);
         if (ret == android::NO_ERROR) {
@@ -279,6 +300,19 @@ int32_t HWCDisplay::PowerHalHintWorker::updateIdleHint(uint64_t deadlineTime) {
         }
     }
     return ret;
+}
+
+void HWCDisplay::PowerHalHintWorker::forceUpdateHints(void) {
+    Lock();
+    mPrevRefreshRate = 0;
+    mNeedUpdateRefreshRateHint = true;
+    if (mIdleHintSupportIsChecked && mIdleHintIsSupported) {
+        mForceUpdateIdleHint = true;
+    }
+
+    Unlock();
+
+    Signal();
 }
 
 void HWCDisplay::PowerHalHintWorker::signalRefreshRate(HWC2::PowerMode powerMode,
@@ -302,26 +336,35 @@ void HWCDisplay::PowerHalHintWorker::signalIdle() {
     Signal();
 }
 
+bool HWCDisplay::PowerHalHintWorker::needUpdateIdleHintLocked(int64_t &timeout) {
+    if (!mIdleHintIsSupported) {
+        return false;
+    }
+
+    int64_t currentTime = systemTime(SYSTEM_TIME_MONOTONIC);
+    bool shouldEnableIdleHint =
+            (mIdleHintDeadlineTime < currentTime) && CC_LIKELY(mIdleHintDeadlineTime > 0);
+    if (mIdleHintIsEnabled != shouldEnableIdleHint || mForceUpdateIdleHint) {
+        return true;
+    }
+
+    timeout = mIdleHintDeadlineTime - currentTime;
+    return false;
+}
+
 void HWCDisplay::PowerHalHintWorker::Routine() {
     Lock();
     int ret = android::NO_ERROR;
-    if (!mNeedUpdateRefreshRateHint) {
-        if (!mIdleHintIsSupported || mIdleHintIsEnabled) {
-            ret = WaitForSignalOrExitLocked();
-        } else {
-            uint64_t currentTime = static_cast<uint_t>(systemTime(SYSTEM_TIME_MONOTONIC));
-            if (mIdleHintDeadlineTime > currentTime) {
-                uint64_t timeout = mIdleHintDeadlineTime - currentTime;
-                ret = WaitForSignalOrExitLocked(static_cast<uint_t>(timeout));
-            }
-        }
+    int64_t timeout = -1;
+    if (!mNeedUpdateRefreshRateHint && !needUpdateIdleHintLocked(timeout)) {
+        ret = WaitForSignalOrExitLocked(timeout);
     }
     if (ret == -EINTR) {
         Unlock();
         return;
     }
     bool needUpdateRefreshRateHint = mNeedUpdateRefreshRateHint;
-    uint64_t deadlineTime = mIdleHintDeadlineTime;
+    int64_t deadlineTime = mIdleHintDeadlineTime;
     HWC2::PowerMode powerMode = mPowerModeState;
     VsyncPeriodNanos vsyncPeriod = mVsyncPeriod;
     /*
@@ -332,8 +375,11 @@ void HWCDisplay::PowerHalHintWorker::Routine() {
      * errors.
      */
     mNeedUpdateRefreshRateHint = false;
+
+    bool forceUpdateIdleHint = mForceUpdateIdleHint;
+    mForceUpdateIdleHint = false;
     Unlock();
-    updateIdleHint(deadlineTime);
+    updateIdleHint(deadlineTime, forceUpdateIdleHint);
     if (needUpdateRefreshRateHint) {
         int32_t rc = updateRefreshRateHintInternal(powerMode, vsyncPeriod);
         if (rc != android::NO_ERROR && rc != -EOPNOTSUPP) {
@@ -770,6 +816,8 @@ HWCDisplay::HWCDisplay(CoreInterface *core_intf, BufferAllocator *buffer_allocat
 
 int HWCDisplay::Init() {
   DisplayError error = kErrorNone;
+
+  mPowerHalHint.Init();
 
   thread_local bool setTaskProfileDone = false;
   if (setTaskProfileDone == false) {

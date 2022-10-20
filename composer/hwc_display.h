@@ -21,6 +21,7 @@
 #define __HWC_DISPLAY_H__
 
 #include <QService.h>
+#include <android/binder_auto_utils.h>
 #include <android/hardware/graphics/common/1.2/types.h>
 #include <core/core_interface.h>
 #include <hardware/hwcomposer.h>
@@ -639,11 +640,15 @@ class HWCDisplay : public DisplayEventHandler {
   class PowerHalHintWorker : public Worker {
   public:
       PowerHalHintWorker();
+      virtual ~PowerHalHintWorker();
+      int Init();
+
       void signalRefreshRate(HWC2::PowerMode powerMode, uint32_t vsyncPeriod);
       void signalIdle();
   protected:
       void Routine() override;
   private:
+      static void BinderDiedCallback(void*);
       int32_t connectPowerHalExt();
       int32_t checkPowerHalExtHintSupport(const std::string& mode);
       int32_t sendPowerHalExtHint(const std::string& mode, bool enabled);
@@ -651,8 +656,10 @@ class HWCDisplay : public DisplayEventHandler {
       int32_t updateRefreshRateHintInternal(HWC2::PowerMode powerMode,
                                             uint32_t vsyncPeriod);
       int32_t sendRefreshRateHint(int refreshRate, bool enabled);
+      void forceUpdateHints();
       int32_t checkIdleHintSupport();
-      int32_t updateIdleHint(uint64_t deadlineTime);
+      int32_t updateIdleHint(int64_t deadlineTime, bool forceUpdate);
+      bool needUpdateIdleHintLocked(int64_t& timeout) REQUIRES(mutex_);
       bool mNeedUpdateRefreshRateHint;
       // previous refresh rate
       int mPrevRefreshRate;
@@ -661,7 +668,8 @@ class HWCDisplay : public DisplayEventHandler {
       // support list of refresh rate hints
       std::map<int, bool> mRefreshRateHintSupportMap;
       bool mIdleHintIsEnabled;
-      uint64_t mIdleHintDeadlineTime;
+      bool mForceUpdateIdleHint;
+      int64_t mIdleHintDeadlineTime;
       // whether idle hint support is checked
       bool mIdleHintSupportIsChecked;
       // whether idle hint is supported
@@ -671,6 +679,7 @@ class HWCDisplay : public DisplayEventHandler {
       // for power HAL extension hints
       std::shared_ptr<aidl::google::hardware::power::extension::pixel::IPowerExt>
                mPowerHalExtAidl;
+      ::ndk::ScopedAIBinder_DeathRecipient mDeathRecipient;
   };
       PowerHalHintWorker mPowerHalHint;
 };
