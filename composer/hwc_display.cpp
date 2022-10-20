@@ -18,6 +18,8 @@
  */
 
 #include <android/binder_manager.h>
+#include "android-base/properties.h"
+#include <android-base/parsebool.h>
 #include <cutils/properties.h>
 #include <errno.h>
 #include <math.h>
@@ -60,6 +62,17 @@ using ::aidl::android::hardware::power::IPower;
 using ::aidl::google::hardware::power::extension::pixel::IPowerExt;
 using namespace std::chrono_literals;
 
+std::optional<std::string> waitForPropertyValue(const std::string& property, int64_t timeoutMs) {
+    if (!android::base::WaitForPropertyCreation(property, std::chrono::milliseconds(timeoutMs))) {
+        return std::nullopt;
+    }
+    std::string out = android::base::GetProperty(property, "unknown");
+    if (out == "unknown") {
+        return std::nullopt;
+    }
+    return std::make_optional(out);
+}
+
 namespace sdm {
 
 constexpr float nsecsPerSec = std::chrono::nanoseconds(1s).count();
@@ -70,34 +83,67 @@ HWCDisplay::PowerHalHintWorker::PowerHalHintWorker()
         mPrevRefreshRate(0),
         mPendingPrevRefreshRate(0),
         mIdleHintIsEnabled(false),
+        mForceUpdateIdleHint(false),
         mIdleHintDeadlineTime(0),
         mIdleHintSupportIsChecked(false),
         mIdleHintIsSupported(false),
         mPowerModeState(HWC2::PowerMode::Off),
         mVsyncPeriod(16666666),
-        mPowerHalExtAidl(nullptr) {
-    InitWorker();
+        mDeathRecipient(AIBinder_DeathRecipient_new(BinderDiedCallback)),
+        mPowerHalExtAidl(nullptr),
+        mPowerHalAidl(nullptr),
+        mPowerHintSession(nullptr) {}
+
+HWCDisplay::PowerHalHintWorker::~PowerHalHintWorker() {
+    Exit();
 }
 
-int32_t HWCDisplay::PowerHalHintWorker::connectPowerHalExt() {
-    if (mPowerHalExtAidl) {
+int HWCDisplay::PowerHalHintWorker::Init() {
+    return InitWorker();
+}
+
+void HWCDisplay::PowerHalHintWorker::BinderDiedCallback(void *cookie) {
+    ALOGE("PowerHal is died");
+    auto powerHint = reinterpret_cast<PowerHalHintWorker *>(cookie);
+    powerHint->forceUpdateHints();
+}
+
+int32_t HWCDisplay::PowerHalHintWorker::connectPowerHal() {
+    if (mPowerHalAidl && mPowerHalExtAidl) {
         return android::NO_ERROR;
     }
     const std::string kInstance = std::string(IPower::descriptor) + "/default";
     ndk::SpAIBinder pwBinder = ndk::SpAIBinder(AServiceManager_getService(kInstance.c_str()));
+    mPowerHalAidl = IPower::fromBinder(pwBinder);
+
+    if (!mPowerHalAidl) {
+        ALOGE("failed to connect power HAL");
+        return -EINVAL;
+    }
+
     ndk::SpAIBinder pwExtBinder;
     AIBinder_getExtension(pwBinder.get(), pwExtBinder.getR());
+
     mPowerHalExtAidl = IPowerExt::fromBinder(pwExtBinder);
+
     if (!mPowerHalExtAidl) {
+        mPowerHalAidl = nullptr;
         DLOGE("failed to connect power HAL extension");
         return -EINVAL;
     }
-    ALOGI("connect power HAL extension successfully");
+
+    AIBinder_linkToDeath(pwExtBinder.get(), mDeathRecipient.get(), reinterpret_cast<void *>(this));
+
+    // ensure the hint session is recreated every time powerhal is recreated
+    mPowerHintSession = nullptr;
+    forceUpdateHints();
+    ALOGI("connected power HAL successfully");
+
     return android::NO_ERROR;
 }
 
 int32_t HWCDisplay::PowerHalHintWorker::checkPowerHalExtHintSupport(const std::string &mode) {
-    if (mode.empty() || connectPowerHalExt() != android::NO_ERROR) {
+    if (mode.empty() || connectPowerHal() != android::NO_ERROR) {
         return -EINVAL;
     }
     bool isSupported = false;
@@ -125,7 +171,7 @@ int32_t HWCDisplay::PowerHalHintWorker::checkPowerHalExtHintSupport(const std::s
 
 int32_t HWCDisplay::PowerHalHintWorker::sendPowerHalExtHint(const std::string &mode,
                                                                bool enabled) {
-    if (mode.empty() || connectPowerHalExt() != android::NO_ERROR) {
+    if (mode.empty() || connectPowerHal() != android::NO_ERROR) {
         return -EINVAL;
     }
     auto ret = mPowerHalExtAidl->setMode(mode.c_str(), enabled);
@@ -264,14 +310,48 @@ int32_t HWCDisplay::PowerHalHintWorker::checkIdleHintSupport(void) {
     return ret;
 }
 
-int32_t HWCDisplay::PowerHalHintWorker::updateIdleHint(uint64_t deadlineTime) {
+int32_t HWCDisplay::PowerHalHintWorker::checkPowerHintSessionSupport() {
+    std::scoped_lock lock(sSharedDisplayMutex);
+    if (sSharedDisplayData.hintSessionSupported.has_value()) {
+        mHintSessionSupportChecked = true;
+        return *(sSharedDisplayData.hintSessionSupported);
+    }
+
+    if (connectPowerHal() != android::NO_ERROR) {
+        ALOGW("Error connecting to the PowerHAL");
+        return -EINVAL;
+    }
+
+    int64_t rate;
+    // Try to get preferred rate to determine if it's supported
+    auto ret = mPowerHalAidl->getHintSessionPreferredRate(&rate);
+
+    int32_t out;
+    if (ret.isOk()) {
+        ALOGV("Power hint session is supported");
+        out = android::NO_ERROR;
+    } else if (ret.getExceptionCode() == EX_UNSUPPORTED_OPERATION) {
+        ALOGW("Power hint session unsupported");
+        out = -EOPNOTSUPP;
+    } else {
+        ALOGW("Error checking power hint status");
+        out = -EINVAL;
+    }
+
+    mHintSessionSupportChecked = true;
+    sSharedDisplayData.hintSessionSupported = out;
+    return out;
+}
+
+int32_t HWCDisplay::PowerHalHintWorker::updateIdleHint(int64_t deadlineTime, bool forceUpdate) {
     int32_t ret = checkIdleHintSupport();
     if (ret != android::NO_ERROR) {
         return ret;
     }
-    bool enableIdleHint = (deadlineTime < systemTime(SYSTEM_TIME_MONOTONIC));
+    bool enableIdleHint =
+            (deadlineTime < systemTime(SYSTEM_TIME_MONOTONIC) && CC_LIKELY(deadlineTime > 0));
 
-    if (mIdleHintIsEnabled != enableIdleHint) {
+    if (mIdleHintIsEnabled != enableIdleHint || forceUpdate) {
         // DLOGI("idle hint = %d", enableIdleHint);
         ret = sendPowerHalExtHint("DISPLAY_IDLE", enableIdleHint);
         if (ret == android::NO_ERROR) {
@@ -280,6 +360,147 @@ int32_t HWCDisplay::PowerHalHintWorker::updateIdleHint(uint64_t deadlineTime) {
     }
     return ret;
 }
+
+void HWCDisplay::PowerHalHintWorker::forceUpdateHints(void) {
+    Lock();
+    mPrevRefreshRate = 0;
+    mNeedUpdateRefreshRateHint = true;
+    mLastErrorSent = std::nullopt;
+    if (mIdleHintSupportIsChecked && mIdleHintIsSupported) {
+        mForceUpdateIdleHint = true;
+    }
+
+    Unlock();
+
+    Signal();
+}
+
+int32_t HWCDisplay::PowerHalHintWorker::sendActualWorkDuration() {
+    Lock();
+    if (mPowerHintSession == nullptr) {
+        ALOGW("Cannot send actual work duration, power hint session not running");
+        Unlock();
+        return -EINVAL;
+    }
+
+    if (!needSendActualWorkDurationLocked()) {
+        Unlock();
+        return android::NO_ERROR;
+    }
+
+    if (mActualWorkDuration.has_value()) {
+        mLastErrorSent = *mActualWorkDuration - mTargetWorkDuration;
+    }
+
+    std::vector<WorkDuration> hintQueue(std::move(mPowerHintQueue));
+    mPowerHintQueue.clear();
+    Unlock();
+
+    ALOGV("Sending hint update batch");
+    mLastActualReportTimestamp = systemTime(SYSTEM_TIME_MONOTONIC);
+    auto ret = mPowerHintSession->reportActualWorkDuration(hintQueue);
+    if (!ret.isOk()) {
+        ALOGW("Failed to report power hint session timing:  %s %s", ret.getMessage(),
+              ret.getDescription().c_str());
+        if (ret.getExceptionCode() == EX_TRANSACTION_FAILED) {
+            Lock();
+            mPowerHalExtAidl = nullptr;
+            Unlock();
+        }
+    }
+    return ret.isOk() ? android::NO_ERROR : -EINVAL;
+}
+
+int32_t HWCDisplay::PowerHalHintWorker::updateTargetWorkDuration() {
+    if (sNormalizeTarget) {
+        return android::NO_ERROR;
+    }
+
+    if (mPowerHintSession == nullptr) {
+        ALOGW("Cannot send target work duration, power hint session not running");
+        return -EINVAL;
+    }
+
+    Lock();
+
+    if (!needUpdateTargetWorkDurationLocked()) {
+        Unlock();
+        return android::NO_ERROR;
+    }
+
+    nsecs_t targetWorkDuration = mTargetWorkDuration;
+    mLastTargetDurationReported = targetWorkDuration;
+    Unlock();
+
+    ALOGV("Sending target time: %lld ns", static_cast<long long>(targetWorkDuration));
+    auto ret = mPowerHintSession->updateTargetWorkDuration(targetWorkDuration);
+    if (!ret.isOk()) {
+        ALOGW("Failed to send power hint session target:  %s %s", ret.getMessage(),
+              ret.getDescription().c_str());
+        if (ret.getExceptionCode() == EX_TRANSACTION_FAILED) {
+            Lock();
+            mPowerHalExtAidl = nullptr;
+            Unlock();
+        }
+    }
+    return ret.isOk() ? android::NO_ERROR : -EINVAL;
+}
+
+void HWCDisplay::PowerHalHintWorker::signalActualWorkDuration(nsecs_t actualDurationNanos) {
+    ATRACE_CALL();
+
+    if (!usePowerHintSession()) {
+        return;
+    }
+    Lock();
+    // convert to long long so "%lld" works correctly
+    long long actualNs = actualDurationNanos, targetNs = mTargetWorkDuration;
+    ALOGV("Sending actual work duration of: %lld on target: %lld with error: %lld", actualNs,
+          targetNs, actualNs - targetNs);
+    if (sTraceHintSessionData) {
+        ATRACE_INT64("Measured duration", actualNs);
+        ATRACE_INT64("Target error term", actualNs - targetNs);
+    }
+
+    WorkDuration work;
+    work.timeStampNanos = systemTime();
+    work.durationNanos = actualDurationNanos;
+    if (sNormalizeTarget) {
+        work.durationNanos += mLastTargetDurationReported - mTargetWorkDuration;
+    }
+
+    mPowerHintQueue.push_back(work);
+    // store the non-normalized last value here
+    mActualWorkDuration = actualDurationNanos;
+
+    bool shouldSignal = needSendActualWorkDurationLocked();
+    Unlock();
+    if (shouldSignal) {
+        Signal();
+    }
+}
+
+void HWCDisplay::PowerHalHintWorker::signalTargetWorkDuration(nsecs_t targetDurationNanos) {
+    if (!usePowerHintSession()) {
+        return;
+    }
+    Lock();
+    mTargetWorkDuration = targetDurationNanos - kTargetSafetyMargin.count();
+
+    if (sTraceHintSessionData) ATRACE_INT64("Time target", mTargetWorkDuration);
+    bool shouldSignal = false;
+    if (!sNormalizeTarget) {
+        shouldSignal = needUpdateTargetWorkDurationLocked();
+        if (shouldSignal && mActualWorkDuration.has_value() && sTraceHintSessionData) {
+            ATRACE_INT64("Target error term", *mActualWorkDuration - mTargetWorkDuration);
+        }
+    }
+    Unlock();
+    if (shouldSignal) {
+        Signal();
+    }
+}
+
 
 void HWCDisplay::PowerHalHintWorker::signalRefreshRate(HWC2::PowerMode powerMode,
                                                           VsyncPeriodNanos vsyncPeriod) {
@@ -302,26 +523,50 @@ void HWCDisplay::PowerHalHintWorker::signalIdle() {
     Signal();
 }
 
+bool HWCDisplay::PowerHalHintWorker::needUpdateIdleHintLocked(int64_t &timeout) {
+    if (!mIdleHintIsSupported) {
+        return false;
+    }
+
+    int64_t currentTime = systemTime(SYSTEM_TIME_MONOTONIC);
+    bool shouldEnableIdleHint =
+            (mIdleHintDeadlineTime < currentTime) && CC_LIKELY(mIdleHintDeadlineTime > 0);
+    if (mIdleHintIsEnabled != shouldEnableIdleHint || mForceUpdateIdleHint) {
+        return true;
+    }
+
+    timeout = mIdleHintDeadlineTime - currentTime;
+    return false;
+}
+
 void HWCDisplay::PowerHalHintWorker::Routine() {
     Lock();
+    bool useHintSession = usePowerHintSession();
+    // if the tids have updated, we restart the session
+    if (mTidsUpdated && useHintSession) mPowerHintSession = nullptr;
+    bool needStartHintSession =
+            (mPowerHintSession == nullptr) && useHintSession && !mBinderTids.empty();
     int ret = android::NO_ERROR;
-    if (!mNeedUpdateRefreshRateHint) {
-        if (!mIdleHintIsSupported || mIdleHintIsEnabled) {
-            ret = WaitForSignalOrExitLocked();
-        } else {
-            uint64_t currentTime = static_cast<uint_t>(systemTime(SYSTEM_TIME_MONOTONIC));
-            if (mIdleHintDeadlineTime > currentTime) {
-                uint64_t timeout = mIdleHintDeadlineTime - currentTime;
-                ret = WaitForSignalOrExitLocked(static_cast<uint_t>(timeout));
-            }
-        }
+    int64_t timeout = -1;
+    if (!mNeedUpdateRefreshRateHint && !needUpdateIdleHintLocked(timeout) &&
+        !needSendActualWorkDurationLocked() && !needStartHintSession &&
+        !needUpdateTargetWorkDurationLocked()) {
+        ret = WaitForSignalOrExitLocked(timeout);
     }
+
+    // exit() signal received
     if (ret == -EINTR) {
         Unlock();
         return;
     }
+
+    // store internal values so they are consistent after Unlock()
+    // some defined earlier also might have changed during the wait
+    useHintSession = usePowerHintSession();
+    needStartHintSession = (mPowerHintSession == nullptr) && useHintSession && !mBinderTids.empty();
+
     bool needUpdateRefreshRateHint = mNeedUpdateRefreshRateHint;
-    uint64_t deadlineTime = mIdleHintDeadlineTime;
+    int64_t deadlineTime = mIdleHintDeadlineTime;
     HWC2::PowerMode powerMode = mPowerModeState;
     VsyncPeriodNanos vsyncPeriod = mVsyncPeriod;
     /*
@@ -331,9 +576,18 @@ void HWCDisplay::PowerHalHintWorker::Routine() {
      * hints if we clear the flags after the hint update functions work without
      * errors.
      */
+    mTidsUpdated = false;
     mNeedUpdateRefreshRateHint = false;
+
+    bool forceUpdateIdleHint = mForceUpdateIdleHint;
+    mForceUpdateIdleHint = false;
     Unlock();
-    updateIdleHint(deadlineTime);
+
+    if (!mHintSessionSupportChecked) {
+        checkPowerHintSessionSupport();
+    }
+
+    updateIdleHint(deadlineTime, forceUpdateIdleHint);
     if (needUpdateRefreshRateHint) {
         int32_t rc = updateRefreshRateHintInternal(powerMode, vsyncPeriod);
         if (rc != android::NO_ERROR && rc != -EOPNOTSUPP) {
@@ -345,7 +599,145 @@ void HWCDisplay::PowerHalHintWorker::Routine() {
             Unlock();
         }
     }
+
+    if (useHintSession) {
+        if (needStartHintSession) {
+            startHintSession();
+        }
+        sendActualWorkDuration();
+        updateTargetWorkDuration();
+    }
 }
+
+void HWCDisplay::PowerHalHintWorker::addBinderTid(pid_t tid) {
+    Lock();
+    if (mBinderTids.count(tid) != 0) {
+        Unlock();
+        return;
+    }
+    mTidsUpdated = true;
+    mBinderTids.emplace(tid);
+    Unlock();
+    Signal();
+}
+
+void HWCDisplay::PowerHalHintWorker::removeBinderTid(pid_t tid) {
+    Lock();
+    if (mBinderTids.erase(tid) == 0) {
+        Unlock();
+        return;
+    }
+    mTidsUpdated = true;
+    Unlock();
+    Signal();
+}
+
+int32_t HWCDisplay::PowerHalHintWorker::startHintSession() {
+    Lock();
+    std::vector<int> tids(mBinderTids.begin(), mBinderTids.end());
+    nsecs_t targetWorkDuration =
+            sNormalizeTarget ? mLastTargetDurationReported : mTargetWorkDuration;
+    // we want to stay locked during this one since it assigns "mPowerHintSession"
+    auto ret = mPowerHalAidl->createHintSession(getpid(), static_cast<uid_t>(getuid()), tids,
+                                                targetWorkDuration, &mPowerHintSession);
+    if (!ret.isOk()) {
+        ALOGW("Failed to start power hal hint session with error  %s %s", ret.getMessage(),
+              ret.getDescription().c_str());
+        if (ret.getExceptionCode() == EX_TRANSACTION_FAILED) {
+            mPowerHalExtAidl = nullptr;
+        }
+        Unlock();
+        return -EINVAL;
+    } else {
+        mLastTargetDurationReported = targetWorkDuration;
+    }
+    Unlock();
+    return android::NO_ERROR;
+}
+
+bool HWCDisplay::PowerHalHintWorker::checkPowerHintSessionReady() {
+    static constexpr const std::chrono::milliseconds maxFlagWaitTime = 20s;
+    static const std::string propName =
+            "debug.sf.enable_adpf_cpu_hint";
+    static std::once_flag hintSessionFlag;
+    // wait once for 20 seconds in another thread for the value to become available, or give up
+    std::call_once(hintSessionFlag, [&] {
+        std::thread hintSessionChecker([&] {
+            std::optional<std::string> flagValue =
+                    waitForPropertyValue(propName, maxFlagWaitTime.count());
+            bool enabled = flagValue.has_value() &&
+                    (android::base::ParseBool(flagValue->c_str()) == android::base::ParseBoolResult::kTrue);
+            std::scoped_lock lock(sSharedDisplayMutex);
+            sSharedDisplayData.hintSessionEnabled = enabled;
+        });
+        hintSessionChecker.detach();
+    });
+    std::scoped_lock lock(sSharedDisplayMutex);
+    return sSharedDisplayData.hintSessionEnabled.has_value() &&
+            sSharedDisplayData.hintSessionSupported.has_value();
+}
+
+bool HWCDisplay::PowerHalHintWorker::usePowerHintSession() {
+    std::optional<bool> useSessionCached{mUsePowerHintSession.load()};
+    if (useSessionCached.has_value()) {
+        return *useSessionCached;
+    }
+    if (!checkPowerHintSessionReady()) return false;
+    std::scoped_lock lock(sSharedDisplayMutex);
+    bool out = *(sSharedDisplayData.hintSessionEnabled) &&
+            (*(sSharedDisplayData.hintSessionSupported) == android::NO_ERROR);
+    mUsePowerHintSession.store(out);
+    return out;
+}
+
+bool HWCDisplay::PowerHalHintWorker::needUpdateTargetWorkDurationLocked() {
+    if (!usePowerHintSession() || sNormalizeTarget) return false;
+    // to disable the rate limiter we just use a max deviation of 1
+    nsecs_t maxDeviation = sUseRateLimiter ? kAllowedDeviation.count() : 1;
+    // report if the change in target from our last submission to now exceeds the threshold
+    return abs(mTargetWorkDuration - mLastTargetDurationReported) >= maxDeviation;
+}
+
+bool HWCDisplay::PowerHalHintWorker::needSendActualWorkDurationLocked() {
+    if (!usePowerHintSession() || mPowerHintQueue.size() == 0 || !mActualWorkDuration.has_value()) {
+        return false;
+    }
+    if (!mLastErrorSent.has_value() ||
+        (systemTime(SYSTEM_TIME_MONOTONIC) - mLastActualReportTimestamp) > kStaleTimeout.count()) {
+        return true;
+    }
+    // to effectively disable the rate limiter we just use a max deviation of 1
+    nsecs_t maxDeviation = sUseRateLimiter ? kAllowedDeviation.count() : 1;
+    // report if the change in error term from our last submission to now exceeds the threshold
+    return abs((*mActualWorkDuration - mTargetWorkDuration) - *mLastErrorSent) >= maxDeviation;
+}
+
+// track the tid of any thread that calls in and remove it on thread death
+void HWCDisplay::PowerHalHintWorker::trackThisThread() {
+    thread_local struct TidTracker {
+        TidTracker(PowerHalHintWorker *worker) : mWorker(worker) {
+            mTid = gettid();
+            mWorker->addBinderTid(mTid);
+        }
+        ~TidTracker() { mWorker->removeBinderTid(mTid); }
+        pid_t mTid;
+        PowerHalHintWorker *mWorker;
+    } tracker(this);
+}
+
+const bool HWCDisplay::PowerHalHintWorker::sTraceHintSessionData =
+        android::base::GetBoolProperty(std::string("debug.hwc.trace_hint_sessions"), false);
+
+const bool HWCDisplay::PowerHalHintWorker::sNormalizeTarget =
+        android::base::GetBoolProperty(std::string("debug.hwc.normalize_hint_session_durations"), true);
+
+const bool HWCDisplay::PowerHalHintWorker::sUseRateLimiter =
+        android::base::GetBoolProperty(std::string("debug.hwc.use_rate_limiter"), true);
+
+HWCDisplay::PowerHalHintWorker::SharedDisplayData
+        HWCDisplay::PowerHalHintWorker::sSharedDisplayData;
+
+std::mutex HWCDisplay::PowerHalHintWorker::sSharedDisplayMutex;
 
 uint32_t HWCDisplay::throttling_refresh_rate_ = 60;
 
@@ -770,6 +1162,8 @@ HWCDisplay::HWCDisplay(CoreInterface *core_intf, BufferAllocator *buffer_allocat
 
 int HWCDisplay::Init() {
   DisplayError error = kErrorNone;
+
+  mPowerHalHint.Init();
 
   thread_local bool setTaskProfileDone = false;
   if (setTaskProfileDone == false) {
@@ -1743,6 +2137,30 @@ HWC2::Error HWCDisplay::PrepareLayerStack(uint32_t *out_num_types, uint32_t *out
     // clear geometry_changes_on_doze_suspend_ on successful prepare.
     geometry_changes_on_doze_suspend_ = GeometryChanges::kNone;
   }
+    // store this once here for the whole frame so it's consistent
+    mUsePowerHints = usePowerHintSession();
+    if (mUsePowerHints) {
+        // adds + removes the tid for adpf tracking
+        mPowerHalHint.trackThisThread();
+        mPresentStartTime = systemTime(SYSTEM_TIME_MONOTONIC);
+        if (mValidateStartTime.has_value()) {
+            // this includes the time between end of validation and start of present
+            mValidationDuration = mPresentStartTime - *mValidateStartTime;
+        } else {
+            mValidationDuration = std::nullopt;
+            // load target time here if validation was skipped
+            mCurrentTarget = getTarget();
+            mPowerHalHint.signalTargetWorkDuration(mCurrentTarget - mPresentStartTime);
+            // if we did not validate (have not sent hint yet) and have data for this case
+            std::optional<nsecs_t> predictedDuration = getPredictedDuration(false);
+            if (predictedDuration.has_value()) {
+                mPowerHalHint.signalActualWorkDuration(*predictedDuration);
+            }
+        }
+        mRetireFenceAcquireTime = std::nullopt;
+        mRetireFenceWaitTime = std::nullopt;
+        mValidateStartTime = std::nullopt;
+    }
 
   for (auto hwc_layer : layer_set_) {
     Layer *layer = hwc_layer->GetSDMLayer();
@@ -1938,6 +2356,32 @@ HWC2::Error HWCDisplay::CommitLayerStack(void) {
     return HWC2::Error::None;
   }
 
+  // store this once here for the whole frame so it's consistent
+  mUsePowerHints = usePowerHintSession();
+  if (mUsePowerHints) {
+      // adds + removes the tid for adpf tracking
+      mPowerHalHint.trackThisThread();
+      mPresentStartTime = systemTime(SYSTEM_TIME_MONOTONIC);
+      if (mValidateStartTime.has_value()) {
+          // this includes the time between end of validation and start of present
+          mValidationDuration = mPresentStartTime - *mValidateStartTime;
+      } else {
+          mValidationDuration = std::nullopt;
+          // load target time here if validation was skipped
+          mCurrentTarget = getTarget();
+          mPowerHalHint.signalTargetWorkDuration(mCurrentTarget - mPresentStartTime);
+          // if we did not validate (have not sent hint yet) and have data for this case
+          std::optional<nsecs_t> predictedDuration = getPredictedDuration(false);
+          if (predictedDuration.has_value()) {
+              mPowerHalHint.signalActualWorkDuration(*predictedDuration);
+          }
+    }
+      mRetireFenceAcquireTime = std::nullopt;
+      mRetireFenceWaitTime = std::nullopt;
+      mValidateStartTime = std::nullopt;
+  }
+
+
   DTRACE_SCOPED();
 
   if (!validated_) {
@@ -2020,6 +2464,10 @@ HWC2::Error HWCDisplay::PostCommitLayerStack(shared_ptr<Fence> *out_retire_fence
   }
   client_target_->ResetGeometryChanges();
 
+    if (mUsePowerHints) {
+        mRetireFenceWaitTime = systemTime();
+    }
+
   for (auto hwc_layer : layer_set_) {
     hwc_layer->ResetGeometryChanges();
     Layer *layer = hwc_layer->GetSDMLayer();
@@ -2045,11 +2493,28 @@ HWC2::Error HWCDisplay::PostCommitLayerStack(shared_ptr<Fence> *out_retire_fence
     layer_buffer->acquire_fence = nullptr;
   }
 
+    if (mUsePowerHints) {
+        mRetireFenceAcquireTime = systemTime();
+    }
+
   client_target_->GetSDMLayer()->request.flags = {};
   // if swapinterval property is set to 0 then close and reset the list retire fence
   if (!swap_interval_zero_) {
     *out_retire_fence = layer_stack_.retire_fence;
   }
+
+    if (mUsePowerHints) {
+        // update the "last target" now that we know for sure when this frame is due
+        mLastTarget = mCurrentTarget;
+
+        // we add an offset here to keep the flinger and HWC error terms roughly the same
+        static const constexpr std::chrono::nanoseconds kFlingerOffset = 300us;
+        nsecs_t now = systemTime() + kFlingerOffset.count();
+
+        updateAverages(now);
+        mPowerHalHint.signalActualWorkDuration(now - mPresentStartTime +
+                                               mValidationDuration.value_or(0));
+    }
 
   if (dump_frame_count_) {
     dump_frame_count_--;
@@ -3313,6 +3778,58 @@ void HWCDisplay::GetConfigInfo(std::map<uint32_t, DisplayConfigVariableInfo> *va
   *variable_config_map = variable_config_map_;
   *active_config_index = active_config_index_;
   *num_configs = num_configs_;
+}
+
+nsecs_t HWCDisplay::getTarget() {
+//TODO: Implement expected present time property in kernel and in DRM interface
+
+//    ExynosDisplay *primaryDisplay = mDevice->getDisplay(HWC_DISPLAY_PRIMARY);
+//    if (primaryDisplay) {
+//        nsecs_t out = primaryDisplay->getPendingExpectedPresentTime();
+//        if (out != 0) {
+//            return out;
+//        }
+//    }
+//    ALOGE("Could not get hint session time target from primary display");
+    // if it fails return some vaguely reasonable time
+    return systemTime(SYSTEM_TIME_MONOTONIC) + 10000000;
+}
+
+// we can cache the value once it is known to avoid the lock after boot
+// we also only actually check once per frame to keep the value internally consistent
+bool HWCDisplay::usePowerHintSession() {
+    if (!mUsePowerHintSession.has_value() && mPowerHalHint.checkPowerHintSessionReady()) {
+        mUsePowerHintSession = mPowerHalHint.usePowerHintSession();
+    }
+    return mUsePowerHintSession.value_or(false);
+}
+
+std::optional<nsecs_t> HWCDisplay::getPredictedDuration(bool duringValidation) {
+    nsecs_t now = systemTime(SYSTEM_TIME_MONOTONIC);
+    AveragesKey beforeFenceKey(layer_stack_.layers.size(), duringValidation, true);
+    AveragesKey afterFenceKey(layer_stack_.layers.size(), duringValidation, false);
+    if (mRollingAverages.count(beforeFenceKey) == 0 || mRollingAverages.count(afterFenceKey) == 0) {
+        return std::nullopt;
+    }
+    nsecs_t beforeReleaseFence = mRollingAverages[beforeFenceKey].average;
+    nsecs_t afterReleaseFence = mRollingAverages[afterFenceKey].average;
+    return std::make_optional(afterReleaseFence +
+                              (mLastTarget.has_value()
+                                       ? std::max(beforeReleaseFence, *mLastTarget - now)
+                                       : beforeReleaseFence));
+}
+
+void HWCDisplay::updateAverages(nsecs_t endTime) {
+    if (!mRetireFenceAcquireTime.has_value()) {
+        return;
+    }
+    nsecs_t beforeFenceTime =
+            mValidationDuration.value_or(0) + (*mRetireFenceWaitTime - mPresentStartTime);
+    nsecs_t afterFenceTime = endTime - *mRetireFenceAcquireTime;
+    mRollingAverages[AveragesKey(layer_stack_.layers.size(), mValidationDuration.has_value(), true)].insert(
+            beforeFenceTime);
+    mRollingAverages[AveragesKey(layer_stack_.layers.size(), mValidationDuration.has_value(), false)].insert(
+            afterFenceTime);
 }
 
 void HWCDisplay::updateRefreshRateHint() {
