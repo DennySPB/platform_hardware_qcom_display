@@ -256,6 +256,8 @@ class HWCDisplay : public DisplayEventHandler {
 
   virtual void SetCpuPerfHintLargeCompCycle() {};
 
+  virtual void updateRefreshRateHint() {};
+
   virtual bool VsyncEnablePending() {
     return false;
   }

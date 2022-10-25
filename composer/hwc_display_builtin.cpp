@@ -136,7 +136,7 @@ HWCDisplayBuiltIn::HWCDisplayBuiltIn(CoreInterface *core_intf, BufferAllocator *
     : HWCDisplay(core_intf, buffer_allocator, callbacks, event_handler, qservice, kBuiltIn, id,
                  sdm_id, DISPLAY_CLASS_BUILTIN),
       buffer_allocator_(buffer_allocator),
-      cpu_hint_(NULL), layer_stitch_task_(*this) {
+      cpu_hint_(NULL), perf_(NULL), layer_stitch_task_(*this) {
 }
 
 int HWCDisplayBuiltIn::Init() {
@@ -145,6 +145,9 @@ int HWCDisplayBuiltIn::Init() {
     delete cpu_hint_;
     cpu_hint_ = NULL;
   }
+
+  perf_ = new Perf();
+  perf_->Init();
 
   use_metadata_refresh_rate_ = true;
   int disable_metadata_dynfps = 0;
@@ -316,6 +319,10 @@ HWC2::Error HWCDisplayBuiltIn::Validate(uint32_t *out_num_types, uint32_t *out_n
   bool idle_screen = GetUpdatingAppLayersCount() == 0;
   error = display_intf_->SetRefreshRate(refresh_rate, force_refresh_rate_, idle_screen);
 
+  if (idle_screen) {
+      perf_->signalIdle();
+  }
+
   // Get the refresh rate set.
   display_intf_->GetRefreshRate(&refresh_rate);
   bool vsync_source = (callbacks_->GetVsyncSource() == id_);
@@ -344,6 +351,7 @@ HWC2::Error HWCDisplayBuiltIn::Validate(uint32_t *out_num_types, uint32_t *out_n
 
   status = PrepareLayerStack(out_num_types, out_num_requests);
   pending_commit_ = true;
+
   return status;
 }
 
@@ -1889,4 +1897,14 @@ HWC2::Error HWCDisplayBuiltIn::PresentAndOrGetValidateDisplayOutput(uint32_t *ou
 
   return status;
 }
+
+void HWCDisplayBuiltIn::updateRefreshRateHint() {
+  uint_t mVsyncPeriod;
+  GetVsyncPeriodByActiveConfig(&mVsyncPeriod);
+  DLOGI("UpdateRefreshRateHint: VsyncPeriod is %d", mVsyncPeriod);
+  if (mVsyncPeriod) {
+      perf_->updateRefreshRateHint(current_power_mode_, mVsyncPeriod);
+  }
+}
+
 }  // namespace sdm

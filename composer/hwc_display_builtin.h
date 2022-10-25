@@ -37,6 +37,7 @@
 #include "utils/sync_task.h"
 #include "utils/constants.h"
 #include "cpuhint.h"
+#include "perf.h"
 #include "hwc_display.h"
 #include "hwc_layers.h"
 
@@ -182,6 +183,9 @@ class HWCDisplayBuiltIn : public HWCDisplay, public SyncTask<LayerStitchTaskCode
   void ValidateUiScaling();
   void ConfigureCwbAtLm(uint32_t *x_pixels, uint32_t *y_pixels);
   void EnablePartialUpdate();
+
+  void updateRefreshRateHint();
+
   uint32_t GetUpdatingAppLayersCount();
   int ValidateFrameCaptureConfig(const BufferInfo &output_buffer_info,
                                  const CwbTapPoint &cwb_tappoint);
@@ -193,6 +197,9 @@ class HWCDisplayBuiltIn : public HWCDisplay, public SyncTask<LayerStitchTaskCode
   const int kPerfHintLargeCompCycle = 0x00001097;
   BufferAllocator *buffer_allocator_ = nullptr;
   CPUHint *cpu_hint_ = nullptr;
+
+  Perf *perf_ = nullptr;
+
   CWBClient cwb_client_ = kCWBClientNone;
 
   // Builtin readback buffer configuration
