@@ -254,6 +254,18 @@ HWC2::Error HWCDisplayBuiltIn::Validate(uint32_t *out_num_types, uint32_t *out_n
     return status;
   }
 
+   ALOGI("SystemTimeMonotonic: %ld", systemTime(SYSTEM_TIME_MONOTONIC));
+
+  if (perf_->usePowerHintSession()) {
+        perf_->mValidateStartTime = systemTime(SYSTEM_TIME_MONOTONIC);
+        perf_->mCurrentTarget = getTarget();
+        perf_->mPowerHalHint.signalTargetWorkDuration(perf_->mCurrentTarget - *perf_->mValidateStartTime);
+        std::optional<nsecs_t> predictedDuration = getPredictedDuration(true);
+        if (predictedDuration.has_value()) {
+            perf_->mPowerHalHint.signalActualWorkDuration(*predictedDuration);
+        }
+    }
+
   if (color_tranform_failed_) {
     // Must fall back to client composition
     MarkLayersForClientComposition();
@@ -352,6 +364,7 @@ HWC2::Error HWCDisplayBuiltIn::Validate(uint32_t *out_num_types, uint32_t *out_n
   status = PrepareLayerStack(out_num_types, out_num_requests);
   pending_commit_ = true;
 
+  applyExpectedPresentTime();
   return status;
 }
 
@@ -497,6 +510,31 @@ HWC2::Error HWCDisplayBuiltIn::Present(shared_ptr<Fence> *out_retire_fence) {
 
   DTRACE_SCOPED();
 
+    // store this once here for the whole frame so it's consistent
+    perf_->mUsePowerHints = perf_->usePowerHintSession();
+    if (perf_->mUsePowerHints) {
+        // adds + removes the tid for adpf tracking
+        perf_->mPowerHalHint.trackThisThread();
+        perf_->mPresentStartTime = systemTime(SYSTEM_TIME_MONOTONIC);
+        if (perf_->mValidateStartTime.has_value()) {
+            // this includes the time between end of validation and start of present
+            perf_->mValidationDuration = perf_->mPresentStartTime - *perf_->mValidateStartTime;
+        } else {
+            perf_->mValidationDuration = std::nullopt;
+            // load target time here if validation was skipped
+            perf_-> mCurrentTarget = getTarget();
+            perf_->mPowerHalHint.signalTargetWorkDuration(perf_->mCurrentTarget - perf_->mPresentStartTime);
+            // if we did not validate (have not sent hint yet) and have data for this case
+            std::optional<nsecs_t> predictedDuration = getPredictedDuration(false);
+            if (predictedDuration.has_value()) {
+                perf_->mPowerHalHint.signalActualWorkDuration(*predictedDuration);
+            }
+        }
+        perf_->mRetireFenceAcquireTime = std::nullopt;
+        perf_->mRetireFenceWaitTime = std::nullopt;
+        perf_->mValidateStartTime = std::nullopt;
+    }
+
   // Proceed only if any resources are available to be allocated for the current display,
   // Otherwise keep doing invalidate
   if (CheckResourceState()) {
@@ -523,6 +561,7 @@ HWC2::Error HWCDisplayBuiltIn::Present(shared_ptr<Fence> *out_retire_fence) {
       }
     }
   } else {
+
     CacheAvrStatus();
     DisplayConfigFixedInfo fixed_info = {};
     display_intf_->GetConfig(&fixed_info);
@@ -539,6 +578,7 @@ HWC2::Error HWCDisplayBuiltIn::Present(shared_ptr<Fence> *out_retire_fence) {
       HandleFrameOutput();
       PostCommitStitchLayers();
       status = HWCDisplay::PostCommitLayerStack(out_retire_fence);
+
       display_intf_->GetConfig(&fixed_info);
       is_cmd_mode_ = fixed_info.is_cmdmode;
       if (is_cmd_mode_ != command_mode) {
@@ -567,6 +607,20 @@ HWC2::Error HWCDisplayBuiltIn::Present(shared_ptr<Fence> *out_retire_fence) {
       revalidate_pending_ = true;
     }
   }
+
+    if (perf_->mUsePowerHints) {
+        // update the "last target" now that we know for sure when this frame is due
+        perf_->mLastTarget = perf_->mCurrentTarget;
+
+        // we add an offset here to keep the flinger and HWC error terms roughly the same
+        static const constexpr std::chrono::nanoseconds kFlingerOffset = 300us;
+        nsecs_t now = systemTime() + kFlingerOffset.count();
+
+        updateAverages(now);
+        perf_->mPowerHalHint.signalActualWorkDuration(now - perf_->mPresentStartTime +
+                                               perf_->mValidationDuration.value_or(0));
+    }
+
   return status;
 }
 
@@ -1905,6 +1959,56 @@ void HWCDisplayBuiltIn::updateRefreshRateHint() {
   if (mVsyncPeriod) {
       perf_->mPowerHalHint.signalRefreshRate(current_power_mode_, mVsyncPeriod);
   }
+}
+
+void HWCDisplayBuiltIn::SetRetireFenceWaitTime() {
+    if (perf_->mUsePowerHints) {
+            perf_->mRetireFenceWaitTime = systemTime();
+    }
+}
+
+void HWCDisplayBuiltIn::SetRetireFenceAcquireTime() {
+    if (perf_->mUsePowerHints) {
+            perf_->mRetireFenceAcquireTime = systemTime();
+    }
+}
+
+nsecs_t HWCDisplayBuiltIn::getTarget() {
+  nsecs_t out = getPendingExpectedPresentTime();
+  if (out != 0) {
+      return out;
+  }
+  ALOGE("Could not get hint session time target");
+  // if it fails return some vaguely reasonable time
+  return systemTime(SYSTEM_TIME_MONOTONIC) + 10000000;
+}
+
+std::optional<nsecs_t> HWCDisplayBuiltIn::getPredictedDuration(bool duringValidation) {
+    nsecs_t now = systemTime(SYSTEM_TIME_MONOTONIC);
+    AveragesKey beforeFenceKey(layer_stack_.layers.size(), duringValidation, true);
+    AveragesKey afterFenceKey(layer_stack_.layers.size(), duringValidation, false);
+    if (mRollingAverages.count(beforeFenceKey) == 0 || mRollingAverages.count(afterFenceKey) == 0) {
+        return std::nullopt;
+    }
+    nsecs_t beforeReleaseFence = mRollingAverages[beforeFenceKey].average;
+    nsecs_t afterReleaseFence = mRollingAverages[afterFenceKey].average;
+    return std::make_optional(afterReleaseFence +
+                              (perf_->mLastTarget.has_value()
+                                       ? std::max(beforeReleaseFence, *perf_->mLastTarget - now)
+                                       : beforeReleaseFence));
+}
+
+void HWCDisplayBuiltIn::updateAverages(nsecs_t endTime) {
+    if (!perf_->mRetireFenceAcquireTime.has_value()) {
+        return;
+    }
+    nsecs_t beforeFenceTime =
+            perf_->mValidationDuration.value_or(0) + (*perf_->mRetireFenceWaitTime - perf_->mPresentStartTime);
+    nsecs_t afterFenceTime = endTime - *perf_->mRetireFenceAcquireTime;
+    mRollingAverages[AveragesKey(layer_stack_.layers.size(), perf_->mValidationDuration.has_value(), true)].insert(
+            beforeFenceTime);
+    mRollingAverages[AveragesKey(layer_stack_.layers.size(), perf_->mValidationDuration.has_value(), false)].insert(
+            afterFenceTime);
 }
 
 }  // namespace sdm

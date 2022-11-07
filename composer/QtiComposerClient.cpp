@@ -1441,7 +1441,12 @@ Error QtiComposerClient::CommandReader::validateDisplay(Display display,
   uint32_t types_count = 0;
   uint32_t reqs_count = 0;
 
-  auto err = mClient.hwc_session_->ValidateDisplay(mDisplay, mExpectedPresentTime, &types_count, &reqs_count);
+  auto err = mClient.hwc_session_->setExpectedPresentTime(mDisplay, mExpectedPresentTime);
+  if (err != HWC2_ERROR_NONE) {
+    return static_cast<Error>(err);
+  }
+
+  err = mClient.hwc_session_->ValidateDisplay(mDisplay, &types_count, &reqs_count);
   if (err != HWC2_ERROR_NONE && err != HWC2_ERROR_HAS_CHANGES) {
     return static_cast<Error>(err);
   }
@@ -1543,7 +1548,13 @@ Error QtiComposerClient::CommandReader::presentDisplay(Display display,
                                                   shared_ptr<Fence>* presentFence,
                                                   std::vector<Layer>& layers,
                                                   std::vector<shared_ptr<Fence>>& releaseFences) {
-  int32_t err = mClient.hwc_session_->PresentDisplay(display, mExpectedPresentTime, presentFence);
+
+  int32_t err = mClient.hwc_session_->setExpectedPresentTime(mDisplay, mExpectedPresentTime);
+  if (err != HWC2_ERROR_NONE) {
+    return static_cast<Error>(err);
+  }
+
+  err = mClient.hwc_session_->PresentDisplay(display, presentFence);
   if (err != HWC2_ERROR_NONE) {
     return static_cast<Error>(err);
   }
@@ -1637,9 +1648,7 @@ bool QtiComposerClient::CommandReader::parseSetExpectedPresentTime(uint16_t leng
   if (length != CommandWriter::kSetExpectedPresentTimeLenght) {
      return false;
   }
-
-  mExpectedPresentTime = read64();
-
+  mExpectedPresentTime = read64Signed();
   return true;
 }
 

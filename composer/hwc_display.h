@@ -277,17 +277,21 @@ class HWCDisplay : public DisplayEventHandler {
 
   virtual void SetCpuPerfHintLargeCompCycle() {};
 
-  virtual void updateRefreshRateHint() {};
 
   virtual bool VsyncEnablePending() {
     return false;
   }
 
-  void applyExpectedPresentTime();
-  uint64_t getPendingExpectedPresentTime();
-  void setExpectedPresentTime(uint64_t timestamp);
+  // Libperfmgr Additions
+  virtual void updateRefreshRateHint() {};
+  virtual void SetRetireFenceAcquireTime() {};
+  virtual void SetRetireFenceWaitTime() {};
 
-  CtrlValue<uint64_t> expectedPresentTime;
+  void applyExpectedPresentTime();
+  int64_t getPendingExpectedPresentTime();
+  void setExpectedPresentTime(int64_t timestamp);
+
+  CtrlValue<int64_t> mExpectedPresentTime;
 
   // Display Configurations
   static uint32_t GetThrottlingRefreshRate() { return HWCDisplay::throttling_refresh_rate_; }

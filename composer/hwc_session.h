@@ -184,13 +184,13 @@ class HWCSession : hwc2_device_t, HWCUEventListener, public qClient::BnQClient,
                                hwc2_display_t *out_display_id);
   int32_t DestroyLayer(hwc2_display_t display, hwc2_layer_t layer);
   int32_t DestroyVirtualDisplay(hwc2_display_t display);
-  int32_t PresentDisplay(hwc2_display_t display, uint64_t timeStamp, shared_ptr<Fence> *out_retire_fence);
+  int32_t PresentDisplay(hwc2_display_t display, shared_ptr<Fence> *out_retire_fence);
   void RegisterCallback(int32_t descriptor, hwc2_callback_data_t callback_data,
                         hwc2_function_pointer_t pointer);
   int32_t SetOutputBuffer(hwc2_display_t display, buffer_handle_t buffer,
                           const shared_ptr<Fence> &release_fence);
   int32_t SetPowerMode(hwc2_display_t display, int32_t int_mode);
-  int32_t ValidateDisplay(hwc2_display_t display, uint64_t timeStamp, uint32_t *out_num_types,
+  int32_t ValidateDisplay(hwc2_display_t display, uint32_t *out_num_types,
                           uint32_t *out_num_requests);
   int32_t SetColorMode(hwc2_display_t display, int32_t /*ColorMode*/ int_mode);
   int32_t SetColorModeWithRenderIntent(hwc2_display_t display, int32_t /*ColorMode*/ int_mode,
@@ -247,8 +247,8 @@ class HWCSession : hwc2_device_t, HWCUEventListener, public qClient::BnQClient,
   int32_t GetClientTargetProperty(hwc2_display_t display,
                                   HwcClientTargetProperty *outClientTargetProperty);
 
+  int32_t setExpectedPresentTime(hwc2_display_t display, int64_t timestamp);
   int64_t getPendingExpectedPresentTime(hwc2_display_t display);
-  void setExpectedPresentTime(hwc2_display_t display, uint64_t timestamp);
 
   // Layer functions
   int32_t SetLayerBuffer(hwc2_display_t display, hwc2_layer_t layer, buffer_handle_t buffer,

@@ -1422,6 +1422,9 @@ HWC2::Error HWCDisplay::PrepareLayerStack(uint32_t *out_num_types, uint32_t *out
       shutdown_pending_ = true;
     } else if (error == kErrorPermission) {
       WaitOnPreviousFence();
+
+      SetRetireFenceAcquireTime();
+
       MarkLayersForGPUBypass();
       geometry_changes_on_doze_suspend_ |= geometry_changes_;
     } else {
@@ -2581,6 +2584,7 @@ void HWCDisplay::WaitOnPreviousFence() {
       return;
     }
     hwc_layer->PushBackReleaseFence(fence);
+    SetRetireFenceWaitTime();
   }
 
   if (Fence::Wait(fbt_release_fence_) != kErrorNone) {
@@ -3011,19 +3015,19 @@ void HWCDisplay::GetConfigInfo(std::map<uint32_t, DisplayConfigVariableInfo> *va
   *num_configs = num_configs_;
 }
 
-void HWCDisplay::setExpectedPresentTime(uint64_t timestamp) {
-    expectedPresentTime.store(timestamp);
+void HWCDisplay::setExpectedPresentTime(int64_t timestamp) {
+   mExpectedPresentTime.store(timestamp);
 }
 
-uint64_t HWCDisplay::getPendingExpectedPresentTime() {
-    if (expectedPresentTime.is_dirty()) {
-        return expectedPresentTime.get();
+int64_t HWCDisplay::getPendingExpectedPresentTime() {
+    if (mExpectedPresentTime.is_dirty()) {
+        return mExpectedPresentTime.get();
     }
     return 0;
 }
 
 void HWCDisplay::applyExpectedPresentTime() {
-    expectedPresentTime.clear_dirty();
+    mExpectedPresentTime.clear_dirty();
 }
 
 } //namespace sdm

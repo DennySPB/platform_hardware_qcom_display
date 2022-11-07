@@ -66,7 +66,6 @@ using ::android::sp;
 using ::android::hardware::hidl_handle;
 using ::android::hardware::hidl_bitfield;
 using ::android::hardware::graphics::composer::V2_1::Error;
-
 using sdm::HWCSession;
 using sdm::Fence;
 
@@ -339,7 +338,7 @@ class QtiComposerClient : public IQtiComposerClient {
     CommandWriter& mWriter;
     Display mDisplay;
     Layer mLayer;
-    uint64_t mExpectedPresentTime;
+    int64_t mExpectedPresentTime = 0;
 
     // Buffer cache impl
     enum class BufferCache {

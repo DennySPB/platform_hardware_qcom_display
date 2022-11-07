@@ -780,7 +780,7 @@ void HWCSession::PerformIdleStatusCallback(hwc2_display_t display) {
   }
 }
 
-int32_t HWCSession::PresentDisplay(hwc2_display_t display, uint64_t timeStamp, shared_ptr<Fence> *out_retire_fence) {
+int32_t HWCSession::PresentDisplay(hwc2_display_t display, shared_ptr<Fence> *out_retire_fence) {
   auto status = HWC2::Error::BadDisplay;
   DTRACE_SCOPED();
 
@@ -797,8 +797,6 @@ int32_t HWCSession::PresentDisplay(hwc2_display_t display, uint64_t timeStamp, s
     DLOGW("Invalid Display : display = %" PRIu64, display);
     return HWC2_ERROR_BAD_DISPLAY;
   }
-
-  setExpectedPresentTime(display, timeStamp);
 
   HandleSecureSession();
 
@@ -1270,30 +1268,26 @@ int32_t HWCSession::GetDozeSupport(hwc2_display_t display, int32_t *out_support)
   return HWC2_ERROR_NONE;
 }
 
-void HWCSession::setExpectedPresentTime(hwc2_display_t display,
-                                        uint64_t timeStamp) {
+int32_t HWCSession::setExpectedPresentTime(hwc2_display_t display,
+                                        int64_t timeStamp) {
 
-  if (timeStamp == 0) return;
-
-  uint64_t time = 0;
-  time = hwc_display_[display]->getPendingExpectedPresentTime();
-  if (time != 0) {
-      return;
+  if (hwc_display_[display]->getPendingExpectedPresentTime() != 0) {
+      return HWC2_ERROR_NONE;
   }
 
-  hwc_display_[display]->setExpectedPresentTime(timeStamp);
-  return;
+  if (timeStamp > 0) {
+      hwc_display_[display]->setExpectedPresentTime(timeStamp);
+  }
+  return HWC2_ERROR_NONE;
 }
 
-int32_t HWCSession::ValidateDisplay(hwc2_display_t display, uint64_t timeStamp, uint32_t *out_num_types,
+int32_t HWCSession::ValidateDisplay(hwc2_display_t display, uint32_t *out_num_types,
                                     uint32_t *out_num_requests) {
   //  out_num_types and out_num_requests will be non-NULL
 
   if (display >= HWCCallbacks::kNumDisplays) {
     return HWC2_ERROR_BAD_DISPLAY;
   }
-
-  setExpectedPresentTime(display, timeStamp);
 
   hwc2_display_t target_display = display;
   {
