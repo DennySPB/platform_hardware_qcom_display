@@ -326,6 +326,8 @@ enum struct DRMOps {
    * Arg: uint32_t - CRTC ID
    *      uint32_t - vm request state
    */
+  CRTC_SET_EXPECTED_PRESENT_TIME,
+
   CRTC_SET_VM_REQ_STATE,
   /*
    * Op: reset CRTC property cache.

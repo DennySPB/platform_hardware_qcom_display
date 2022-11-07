@@ -239,6 +239,11 @@ class QtiComposerClient : public IQtiComposerClient {
   Error getDisplayReadbackBuffer(Display display, const native_handle_t* rawHandle,
                                  const native_handle_t** outHandle);
 
+
+  Return<Error> setExpectedPresentTime(
+            uint64_t display,
+            const std::optional<ClockMonotonicTimestamp> expectedPresentTime) override;
+
   // Methods to check support of specific features like skip_validate
   std::unordered_set<hwc2_capability_t> mCapabilities;
   void getCapabilities();
@@ -327,6 +332,9 @@ class QtiComposerClient : public IQtiComposerClient {
     bool parseSetLayerColorTransform(uint16_t length);
     bool parseSetLayerPerFrameMetadataBlobs(uint16_t length);
     bool parseSetDisplayElapseTime(uint16_t length);
+
+    // Additional commands
+    bool parseSetExpectedPresentTime(uint16_t length);
 
     bool parseCommonCmd(IComposerClient::Command command, uint16_t length);
 

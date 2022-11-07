@@ -51,6 +51,24 @@
 #define VIDEO_FBID_LIMIT 36
 #define OFFLINE_ROTATOR_FBID_LIMIT 2
 
+template <typename T>
+struct CtrlValue {
+public:
+    void store(T value) {
+        if (value == value_) return;
+        dirty_ = true;
+        value_ = value;
+    };
+    const T &get() { return value_; };
+    bool is_dirty() { return dirty_; };
+    void clear_dirty() { dirty_ = false; };
+    void set_dirty() { dirty_ = true; };
+
+private:
+    T value_;
+    bool dirty_;
+};
+
 using sde_drm::DRMPowerMode;
 namespace sdm {
 class HWInfoInterface;
@@ -98,6 +116,7 @@ class HWDeviceDRM : public HWInterface {
   // This API is no longer supported, expectation is to call the correct API on HWEvents
   virtual DisplayError SetVSyncState(bool enable);
   virtual void SetIdleTimeoutMs(uint32_t timeout_ms);
+
   virtual DisplayError SetDisplayMode(const HWDisplayMode hw_display_mode);
   virtual DisplayError SetRefreshRate(uint32_t refresh_rate);
   virtual DisplayError SetPanelBrightness(int level) { return kErrorNotSupported; }
@@ -212,6 +231,12 @@ class HWDeviceDRM : public HWInterface {
   void SetTUIState();
   void GetTopologySplit(HWTopology hw_topology, uint32_t *split_number);
   virtual DisplayError TeardownConcurrentWriteback(void) { return kErrorNotSupported; }
+
+  virtual void setExpectedPresentTime(uint64_t __unused timestamp);
+  virtual void applyExpectedPresentTime();
+  virtual uint64_t getPendingExpectedPresentTime();
+  CtrlValue<uint64_t> expectedPresentTime;
+
 
   class Registry {
    public:

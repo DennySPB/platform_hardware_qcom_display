@@ -74,6 +74,9 @@ class DisplayVirtual : public DisplayBase {
   virtual DisplayError colorSamplingOff();
   virtual DisplayError TeardownConcurrentWriteback(void) { return kErrorNotSupported; }
 
+  virtual  uint64_t getPendingExpectedPresentTime() { return 0; }
+  virtual void setExpectedPresentTime(uint64_t __unused timestamp) {}
+
  protected:
   float set_max_lum_ = -1.0;
   float set_min_lum_ = -1.0;

@@ -1142,6 +1142,21 @@ Return<void> QtiComposerClient::setActiveConfigWithConstraints(
   return Void();
 }
 
+Return<void> QtiComposerClient::setExpectedPresentTime(
+    uint64_t display, const std::optional<ClockMonotonicTimestamp> expectedPresentTime) {
+
+  if (!expectedPresentTime.has_value()) return Void();
+  uint64_t time = 0;
+  auto error = hwc_session_->getPendingExpectedPresentTime(*time);
+  if (time != 0) {
+  }
+
+  auto error = hwc_session_->setExpectedPresentTime(
+      display, expectedPresentTime->timestampNanos);
+  return Void();
+}
+
+
 Return<composer_V2_4::Error> QtiComposerClient::setAutoLowLatencyMode(uint64_t display, bool on) {
   std::lock_guard<std::mutex> lock(mDisplayDataMutex);
   if (mDisplayData.find(display) == mDisplayData.end()) {
@@ -1224,6 +1239,9 @@ bool QtiComposerClient::CommandReader::parseCommonCmd(
     break;
   case IComposerClient::Command::PRESENT_OR_VALIDATE_DISPLAY:
     parsed = parsePresentOrValidateDisplay(length);
+    break;
+  case IComposerClient::Command::SET_EXPECTED_PRESENT_TIME:
+    parsed = parseSetExpectedPresentTime(length);
     break;
   case IComposerClient::Command::SET_LAYER_CURSOR_POSITION:
     parsed = parseSetLayerCursorPosition(length);
@@ -1626,6 +1644,19 @@ bool QtiComposerClient::CommandReader::parsePresentOrValidateDisplay(uint16_t le
     }
   } else {
     mWriter.setError(getCommandLoc(), err);
+  }
+
+  return true;
+}
+
+bool QtiComposerClient::CommandReader::parseSetExpectedPresentTime(uint16_t length) {
+  if (length != CommandWriter::kSetExpectedPresentTimeLenght) {
+     return false;
+  }
+
+  auto err = SetExpectedPresentTime(mDisplay, const std::optional<ClockMonotonicTimestamp> expectedPresentTime);
+  if (static_cast<Error>(err) != Error::NONE) {
+    mWriter.setError(getCommandLoc(), static_cast<Error>(err));
   }
 
   return true;

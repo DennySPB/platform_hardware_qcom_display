@@ -290,6 +290,12 @@ class CommandWriter {
     endCommand();
   }
 
+  static constexpr uint16_t kSetExpectedPresentTimeLenght = 0;
+  void setExpectedPresentTime() {
+    beginCommand(IQtiComposerClient::Command::SET_EXPECTED_PRESENT_TIME, kSetExpectedPresentTimeLenght);
+    endCommand();
+  }
+
   static constexpr uint16_t kAcceptDisplayChangesLength = 0;
   void acceptDisplayChanges() {
     beginCommand(IQtiComposerClient::Command::ACCEPT_DISPLAY_CHANGES, kAcceptDisplayChangesLength);

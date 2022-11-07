@@ -256,7 +256,15 @@ class HWCDisplay : public DisplayEventHandler {
 
   virtual void SetCpuPerfHintLargeCompCycle() {};
 
+  // Libperfmgr Additions
   virtual void updateRefreshRateHint() {};
+
+  virtual void SetRetireFenceAcquireTime() {};
+  virtual void SetRetireFenceWaitTime() {};
+
+  virtual HWC2::Error getPendingExpectedPresentTime(uint64_t *time);
+  virtual HWC2::Error setExpectedPresentTime(uint64_t __unused timestamp);
+  virtual void applyExpectedPresentTime() {}
 
   virtual bool VsyncEnablePending() {
     return false;
@@ -592,6 +600,8 @@ class HWCDisplay : public DisplayEventHandler {
   shared_ptr<Fence> client_acquire_fence_ = nullptr;
   int32_t client_dataspace_ = 0;
   hwc_region_t client_damage_region_ = {};
+
+  int64_t pending_expected_time_  = 0;
 
  private:
   void DumpInputBuffers(void);

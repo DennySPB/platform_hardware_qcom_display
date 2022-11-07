@@ -129,6 +129,9 @@ class DisplayNull : public DisplayInterface {
   MAKE_NO_OP(NotifyDisplayCalibrationMode(bool))
   MAKE_NO_OP(TeardownConcurrentWriteback(void))
 
+  uint64_t getPendingExpectedPresentTime() { return 0; }
+  void setExpectedPresentTime(uint64_t __unused timestamp) {}
+
  protected:
   DisplayConfigVariableInfo default_variable_config_ = {};
   DisplayConfigFixedInfo default_fixed_config_ = {};
@@ -158,6 +161,7 @@ class DisplayNullExternal : public DisplayNull {
                                                     uint8_t *out_data);
   void SetActive(bool active) { active_ = active; }
   bool IsActive() { return active_; }
+
 
  private:
   bool active_ = false;

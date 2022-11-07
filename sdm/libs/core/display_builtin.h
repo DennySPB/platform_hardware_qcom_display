@@ -159,6 +159,9 @@ class DisplayBuiltIn : public DisplayBase, HWEventHandler, DppsPropIntf {
   void HandleBacklightEvent(float brightness_level) override;
   DisplayError TeardownConcurrentWriteback(void) override;
 
+  uint64_t getPendingExpectedPresentTime() override;
+  void setExpectedPresentTime(uint64_t __unused timestamp) override;
+
   // Implement the DppsPropIntf
   DisplayError DppsProcessOps(enum DppsOps op, void *payload, size_t size) override;
   DisplayError SetActiveConfig(uint32_t index) override;

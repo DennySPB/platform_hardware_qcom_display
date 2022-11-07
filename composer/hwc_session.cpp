@@ -618,6 +618,14 @@ int32_t HWCSession::GetColorModes(hwc2_display_t display, uint32_t *out_num_mode
   return CallDisplayFunction(display, &HWCDisplay::GetColorModes, out_num_modes, out_modes);
 }
 
+int32_t HWCSession::getPendingExpectedPresentTime(hwc2_display_t display, uint64_t *time) {
+  return CallDisplayFunction(display, &HWCDisplay::getPendingExpectedPresentTime, time);
+}
+
+int32_t HWCSession::setExpectedPresentTime(hwc2_display_t display, uint64_t timestamp) {
+  return CallDisplayFunction(display, &HWCDisplay::setExpectedPresentTime, timestamp);
+}
+
 int32_t HWCSession::GetRenderIntents(hwc2_display_t display, int32_t /*ColorMode*/ int_mode,
                                      uint32_t *out_num_intents,
                                      int32_t /*RenderIntent*/ *int_out_intents) {

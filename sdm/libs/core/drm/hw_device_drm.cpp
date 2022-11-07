@@ -1490,6 +1490,17 @@ void HWDeviceDRM::SetupAtomic(Fence::ScopedRef &scoped_ref, HWLayers *hw_layers,
     drm_atomic_intf_->Perform(DRMOps::CRTC_SET_MODE, token_.crtc_id, &current_mode);
   }
 
+
+  auto expectedPresentTime = getPendingExpectedPresentTime();
+  if (expectedPresentTime != 0) {
+       drm_atomic_intf_->Perform(DRMOps::CRTC_SET_EXPECTED_PRESENT_TIME, token_.crtc_id,
+                              &expectedPresentTime);
+    long long exptime = expectedPresentTime;
+    DLOGI("Expected present time from prop %lld ms",
+             exptime);
+    applyExpectedPresentTime();
+  }
+
   if (!validate && (hw_layer_info.set_idle_time_ms >= 0)) {
     DLOGI_IF(kTagDriverConfig, "Setting idle timeout to = %d ms",
              hw_layer_info.set_idle_time_ms);
@@ -1500,6 +1511,22 @@ void HWDeviceDRM::SetupAtomic(Fence::ScopedRef &scoped_ref, HWLayers *hw_layers,
   if (hw_panel_info_.mode == kModeCommand) {
     drm_atomic_intf_->Perform(DRMOps::CONNECTOR_SET_AUTOREFRESH, token_.conn_id, autorefresh_);
   }
+}
+
+void HWDeviceDRM::setExpectedPresentTime(uint64_t timestamp) {
+    expectedPresentTime.store(timestamp);
+}
+
+uint64_t HWDeviceDRM::getPendingExpectedPresentTime() {
+    if (expectedPresentTime.is_dirty()) {
+        return expectedPresentTime.get();
+    }
+
+    return 0;
+}
+
+void HWDeviceDRM::applyExpectedPresentTime() {
+    expectedPresentTime.clear_dirty();
 }
 
 void HWDeviceDRM::AddSolidfillStage(const HWSolidfillStage &sf, uint32_t plane_alpha) {

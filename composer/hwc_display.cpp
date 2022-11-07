@@ -1422,6 +1422,9 @@ HWC2::Error HWCDisplay::PrepareLayerStack(uint32_t *out_num_types, uint32_t *out
       shutdown_pending_ = true;
     } else if (error == kErrorPermission) {
       WaitOnPreviousFence();
+
+      SetRetireFenceAcquireTime();
+
       MarkLayersForGPUBypass();
       geometry_changes_on_doze_suspend_ |= geometry_changes_;
     } else {
@@ -2581,6 +2584,7 @@ void HWCDisplay::WaitOnPreviousFence() {
       return;
     }
     hwc_layer->PushBackReleaseFence(fence);
+    SetRetireFenceWaitTime();
   }
 
   if (Fence::Wait(fbt_release_fence_) != kErrorNone) {
@@ -3009,6 +3013,22 @@ void HWCDisplay::GetConfigInfo(std::map<uint32_t, DisplayConfigVariableInfo> *va
   *variable_config_map = variable_config_map_;
   *active_config_index = active_config_index_;
   *num_configs = num_configs_;
+}
+
+HWC2::Error HWCDisplay::getPendingExpectedPresentTime(uint64_t *time) {
+  pending_expected_time_, *time = 0;
+  if (display_intf_) {
+     pending_expected_time_ = display_intf_->getPendingExpectedPresentTime();
+  }
+  *time = pending_expected_time_;
+  return HWC2::Error::None;
+}
+
+HWC2::Error HWCDisplay::setExpectedPresentTime(uint64_t timestamp) {
+  if (display_intf_) {
+    display_intf_->setExpectedPresentTime(timestamp);
+  }
+  return HWC2::Error::None;
 }
 
 } //namespace sdm
