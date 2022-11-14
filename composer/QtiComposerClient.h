@@ -283,7 +283,8 @@ class QtiComposerClient : public IQtiComposerClient {
    public:
     explicit CommandReader(QtiComposerClient& client);
     Error parse();
-    Error validateDisplay(Display display, std::vector<Layer>& changedLayers,
+    Error validateDisplay(Display display,
+                          std::vector<Layer>& changedLayers,
                           std::vector<IComposerClient::Composition>& compositionTypes,
                           uint32_t& displayRequestMask, std::vector<Layer>& requestedLayers,
                           std::vector<uint32_t>& requestMasks,
@@ -318,6 +319,7 @@ class QtiComposerClient : public IQtiComposerClient {
     bool parseSetLayerVisibleRegion(uint16_t length);
     bool parseSetLayerZOrder(uint16_t length);
     bool parseSetLayerType(uint16_t length);
+    bool parseSetExpectedPresentTime(uint16_t length);
 
     // Commands from ::android::hardware::graphics::composer::V2_2::IComposerClient follow.
     bool parseSetLayerPerFrameMetadata(uint16_t length);
@@ -337,6 +339,7 @@ class QtiComposerClient : public IQtiComposerClient {
     CommandWriter& mWriter;
     Display mDisplay;
     Layer mLayer;
+    uint64_t mExpectedPresentTime;
 
     // Buffer cache impl
     enum class BufferCache {

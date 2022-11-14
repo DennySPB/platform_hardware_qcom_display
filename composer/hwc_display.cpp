@@ -3011,4 +3011,19 @@ void HWCDisplay::GetConfigInfo(std::map<uint32_t, DisplayConfigVariableInfo> *va
   *num_configs = num_configs_;
 }
 
+void HWCDisplay::setExpectedPresentTime(uint64_t timestamp) {
+    expectedPresentTime.store(timestamp);
+}
+
+uint64_t HWCDisplay::getPendingExpectedPresentTime() {
+    if (expectedPresentTime.is_dirty()) {
+        return expectedPresentTime.get();
+    }
+    return 0;
+}
+
+void HWCDisplay::applyExpectedPresentTime() {
+    expectedPresentTime.clear_dirty();
+}
+
 } //namespace sdm

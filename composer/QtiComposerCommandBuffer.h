@@ -164,6 +164,13 @@ class CommandWriter {
     endCommand();
   }
 
+  static constexpr uint16_t kSetExpectedPresentTimeLenght = 2;
+  void setExpectedPresentTime(uint64_t expectedPresentTime) {
+    beginCommand(IQtiComposerClient::Command::SET_EXPECTED_PRESENT_TIME, kSetExpectedPresentTimeLenght);
+    write64(expectedPresentTime);
+    endCommand();
+  }
+
   static constexpr uint32_t kPresentOrValidateDisplayResultLength = 1;
   void setPresentOrValidateResult(uint32_t state) {
     beginCommand(IQtiComposerClient::Command::SET_PRESENT_OR_VALIDATE_DISPLAY_RESULT,

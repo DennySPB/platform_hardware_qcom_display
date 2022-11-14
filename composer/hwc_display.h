@@ -54,6 +54,27 @@ using VsyncPeriodChangeTimeline = composer_V2_4::VsyncPeriodChangeTimeline;
 using VsyncPeriodNanos = composer_V2_4::VsyncPeriodNanos;
 using ClientTargetProperty = composer_V2_4::IComposerClient::ClientTargetProperty;
 
+template <typename T>
+struct CtrlValue {
+public:
+    CtrlValue() : value_(), dirty_(false) {}
+    CtrlValue(const T& value) : value_(value), dirty_(false) {}
+
+    void store(T value) {
+        if (value == value_) return;
+        dirty_ = true;
+        value_ = value;
+    };
+    const T &get() { return value_; };
+    bool is_dirty() { return dirty_; };
+    void clear_dirty() { dirty_ = false; };
+    void set_dirty() { dirty_ = true; };
+    void reset(T value) { value_ = value; dirty_ = false; }
+private:
+    T value_;
+    bool dirty_;
+};
+
 namespace sdm {
 
 class HWCToneMapper;
@@ -261,6 +282,12 @@ class HWCDisplay : public DisplayEventHandler {
   virtual bool VsyncEnablePending() {
     return false;
   }
+
+  void applyExpectedPresentTime();
+  uint64_t getPendingExpectedPresentTime();
+  void setExpectedPresentTime(uint64_t timestamp);
+
+  CtrlValue<uint64_t> expectedPresentTime;
 
   // Display Configurations
   static uint32_t GetThrottlingRefreshRate() { return HWCDisplay::throttling_refresh_rate_; }
