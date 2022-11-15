@@ -62,11 +62,6 @@ namespace sdm {
 class Perf {
 
  public:
-  DisplayError Init();
-  void updateRefreshRateHint(HWC2::PowerMode powerMode, uint32_t vsyncPeriod);
-  void signalIdle();
-
- private:
   int32_t checkPowerHalExtHintSupport(const std::string& mode);
 
   /* Display hint to notify power hal */

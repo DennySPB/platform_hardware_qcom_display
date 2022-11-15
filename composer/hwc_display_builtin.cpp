@@ -147,7 +147,7 @@ int HWCDisplayBuiltIn::Init() {
   }
 
   perf_ = new Perf();
-  perf_->Init();
+  perf_->mPowerHalHint.Init();
 
   use_metadata_refresh_rate_ = true;
   int disable_metadata_dynfps = 0;
@@ -320,7 +320,7 @@ HWC2::Error HWCDisplayBuiltIn::Validate(uint32_t *out_num_types, uint32_t *out_n
   error = display_intf_->SetRefreshRate(refresh_rate, force_refresh_rate_, idle_screen);
 
   if (idle_screen) {
-      perf_->signalIdle();
+      perf_->mPowerHalHint.signalIdle();
   }
 
   // Get the refresh rate set.
@@ -1903,7 +1903,7 @@ void HWCDisplayBuiltIn::updateRefreshRateHint() {
   GetVsyncPeriodByActiveConfig(&mVsyncPeriod);
   DLOGI("UpdateRefreshRateHint: VsyncPeriod is %d", mVsyncPeriod);
   if (mVsyncPeriod) {
-      perf_->updateRefreshRateHint(current_power_mode_, mVsyncPeriod);
+      perf_->mPowerHalHint.signalRefreshRate(current_power_mode_, mVsyncPeriod);
   }
 }
 

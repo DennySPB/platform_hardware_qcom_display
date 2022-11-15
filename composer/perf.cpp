@@ -56,11 +56,6 @@ namespace sdm {
 constexpr float nsecsPerSec = std::chrono::nanoseconds(1s).count();
 constexpr int64_t nsecsIdleHintTimeout = std::chrono::nanoseconds(100ms).count();
 
-DisplayError Perf::Init() {
-  mPowerHalHint.Init();
-  return kErrorNone;
-}
-
 Perf::PowerHalHintWorker::PowerHalHintWorker()
       : Worker("DisplayHints", HAL_PRIORITY_URGENT_DISPLAY),
         mNeedUpdateRefreshRateHint(false),
@@ -389,15 +384,6 @@ void Perf::PowerHalHintWorker::Routine() {
             Unlock();
         }
     }
-}
-
-void Perf::updateRefreshRateHint(HWC2::PowerMode powerMode,
-                                            uint32_t vsyncPeriod) {
-    mPowerHalHint.signalRefreshRate(powerMode, vsyncPeriod);
-}
-
-void Perf::signalIdle() {
-    mPowerHalHint.signalIdle();
 }
 
 }  // namespace sdm
