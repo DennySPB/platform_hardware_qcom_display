@@ -318,6 +318,7 @@ class QtiComposerClient : public IQtiComposerClient {
     bool parseSetLayerVisibleRegion(uint16_t length);
     bool parseSetLayerZOrder(uint16_t length);
     bool parseSetLayerType(uint16_t length);
+    bool parseSetExpectedPresentTime(uint16_t length);
 
     // Commands from ::android::hardware::graphics::composer::V2_2::IComposerClient follow.
     bool parseSetLayerPerFrameMetadata(uint16_t length);

@@ -198,7 +198,38 @@ class HWCDisplayBuiltIn : public HWCDisplay, public SyncTask<LayerStitchTaskCode
   BufferAllocator *buffer_allocator_ = nullptr;
   CPUHint *cpu_hint_ = nullptr;
 
+  // Libperfmgr additions
   Perf *perf_ = nullptr;
+
+  std::optional<nsecs_t> mValidateStartTime;
+  nsecs_t mPresentStartTime;
+  std::optional<nsecs_t> mValidationDuration;
+  std::optional<nsecs_t> mLastExpectedPresentTime;
+
+  // tracks the expected present time of the current frame
+  nsecs_t mExpectedPresentTime;
+
+  nsecs_t getExpectedPresentTime(nsecs_t startTime);
+  void updateAverages(nsecs_t endTime);
+  std::optional<nsecs_t> getPredictedDuration(bool duringValidation);
+
+      // union here permits use as a key in the unordered_map without a custom hash
+      union AveragesKey {
+          struct {
+              uint16_t layers;
+              bool validated;
+              bool beforeReleaseFence;
+          };
+          uint32_t value;
+          AveragesKey(size_t layers, bool validated, bool beforeReleaseFence)
+                : layers(static_cast<uint16_t>(layers)),
+                  validated(validated),
+                  beforeReleaseFence(beforeReleaseFence) {}
+          operator uint32_t() const { return value; }
+      };
+
+      static const constexpr int kAveragesBufferSize = 3;
+      std::unordered_map<uint32_t, RollingAverage<kAveragesBufferSize>> mRollingAverages;
 
   CWBClient cwb_client_ = kCWBClientNone;
 

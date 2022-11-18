@@ -1716,6 +1716,8 @@ HWC2::Error HWCDisplay::PostCommitLayerStack(shared_ptr<Fence> *out_retire_fence
   }
   client_target_->ResetGeometryChanges();
 
+  mRetireFenceWaitTime = systemTime();
+
   for (auto hwc_layer : layer_set_) {
     hwc_layer->ResetGeometryChanges();
     Layer *layer = hwc_layer->GetSDMLayer();
@@ -1746,6 +1748,8 @@ HWC2::Error HWCDisplay::PostCommitLayerStack(shared_ptr<Fence> *out_retire_fence
   if (!swap_interval_zero_) {
     *out_retire_fence = layer_stack_.retire_fence;
   }
+
+  mRetireFenceAcquireTime = systemTime();
 
   if (dump_frame_count_) {
     dump_frame_count_--;
@@ -3011,4 +3015,15 @@ void HWCDisplay::GetConfigInfo(std::map<uint32_t, DisplayConfigVariableInfo> *va
   *num_configs = num_configs_;
 }
 
+void HWCDisplay::setExpectedPresentTime(int64_t timestamp) {
+     mExpectedPresentTime = timestamp;
+}
+
+int64_t HWCDisplay::getPendingExpectedPresentTime() {
+    return mExpectedPresentTime;
+}
+
+void HWCDisplay::applyExpectedPresentTime() {
+    mExpectedPresentTime = 0;
+}
 } //namespace sdm

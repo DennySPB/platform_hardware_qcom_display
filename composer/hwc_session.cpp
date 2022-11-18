@@ -836,7 +836,6 @@ int32_t HWCSession::PresentDisplay(hwc2_display_t display, shared_ptr<Fence> *ou
 
   HandleSecureSession();
 
-
   hwc2_display_t target_display = display;
 
   {
@@ -1327,6 +1326,19 @@ int32_t HWCSession::GetDozeSupport(hwc2_display_t display, int32_t *out_support)
   return HWC2_ERROR_NONE;
 }
 
+int32_t HWCSession::setExpectedPresentTime(hwc2_display_t display,
+                                        int64_t timeStamp) {
+
+  if (hwc_display_[display]->getPendingExpectedPresentTime() != 0) {
+      return HWC2_ERROR_NONE;
+ }
+
+  if (timeStamp > 0) {
+      hwc_display_[display]->setExpectedPresentTime(timeStamp);
+  }
+  return HWC2_ERROR_NONE;
+}
+
 int32_t HWCSession::ValidateDisplay(hwc2_display_t display, uint32_t *out_num_types,
                                     uint32_t *out_num_requests) {
   //  out_num_types and out_num_requests will be non-NULL
@@ -1336,7 +1348,6 @@ int32_t HWCSession::ValidateDisplay(hwc2_display_t display, uint32_t *out_num_ty
   }
 
   hwc2_display_t target_display = display;
-
   {
     SCOPE_LOCK(power_state_[display]);
     if (power_state_transition_[display]) {

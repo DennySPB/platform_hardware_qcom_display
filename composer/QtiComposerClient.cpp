@@ -1225,6 +1225,9 @@ bool QtiComposerClient::CommandReader::parseCommonCmd(
   case IComposerClient::Command::PRESENT_OR_VALIDATE_DISPLAY:
     parsed = parsePresentOrValidateDisplay(length);
     break;
+  case IComposerClient::Command::SET_EXPECTED_PRESENT_TIME:
+    parsed = parseSetExpectedPresentTime(length);
+    break;
   case IComposerClient::Command::SET_LAYER_CURSOR_POSITION:
     parsed = parseSetLayerCursorPosition(length);
     break;
@@ -1626,6 +1629,19 @@ bool QtiComposerClient::CommandReader::parsePresentOrValidateDisplay(uint16_t le
     }
   } else {
     mWriter.setError(getCommandLoc(), err);
+  }
+
+  return true;
+}
+
+bool QtiComposerClient::CommandReader::parseSetExpectedPresentTime(uint16_t length) {
+  if (length != CommandWriter::kSetExpectedPresentTimeLenght) {
+     return false;
+  }
+
+  auto err = mClient.hwc_session_->setExpectedPresentTime(mDisplay, read64Signed());
+  if (static_cast<Error>(err) == Error::NONE) {
+     return true;
   }
 
   return true;
