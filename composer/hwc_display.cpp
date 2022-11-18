@@ -1708,6 +1708,7 @@ HWC2::Error HWCDisplay::PostCommitLayerStack(shared_ptr<Fence> *out_retire_fence
      tone_mapper_->PostCommit(&layer_stack_);
   }
 
+
   // TODO(user): No way to set the client target release fence on SF
   shared_ptr<Fence> client_target_release_fence =
       client_target_->GetSDMLayer()->input_buffer.release_fence;
@@ -1715,6 +1716,8 @@ HWC2::Error HWCDisplay::PostCommitLayerStack(shared_ptr<Fence> *out_retire_fence
     fbt_release_fence_ = client_target_release_fence;
   }
   client_target_->ResetGeometryChanges();
+
+  mRetireFenceWaitTime = systemTime();
 
   for (auto hwc_layer : layer_set_) {
     hwc_layer->ResetGeometryChanges();
@@ -1741,11 +1744,14 @@ HWC2::Error HWCDisplay::PostCommitLayerStack(shared_ptr<Fence> *out_retire_fence
     layer_buffer->acquire_fence = nullptr;
   }
 
+
   client_target_->GetSDMLayer()->request.flags = {};
   // if swapinterval property is set to 0 then close and reset the list retire fence
   if (!swap_interval_zero_) {
     *out_retire_fence = layer_stack_.retire_fence;
   }
+
+  mRetireFenceAcquireTime = systemTime();
 
   if (dump_frame_count_) {
     dump_frame_count_--;
@@ -2569,7 +2575,6 @@ void HWCDisplay::WaitOnPreviousFence() {
   if (!display_config.is_cmdmode) {
     return;
   }
-
   // Since prepare failed commit would follow the same.
   // Wait for previous rel fence.
   for (auto hwc_layer : layer_set_) {
@@ -2587,6 +2592,7 @@ void HWCDisplay::WaitOnPreviousFence() {
     DLOGW("sync_wait error errno = %d, desc = %s", errno, strerror(errno));
     return;
   }
+
 }
 
 void HWCDisplay::GetLayerStack(HWCLayerStack *stack) {
@@ -3011,4 +3017,16 @@ void HWCDisplay::GetConfigInfo(std::map<uint32_t, DisplayConfigVariableInfo> *va
   *num_configs = num_configs_;
 }
 
+void HWCDisplay::setExpectedPresentTime(int64_t timestamp) {
+     mExpectedPresentTime = timestamp;
+     display_intf_->SetExpectedPresentTime(mExpectedPresentTime);
+}
+
+int64_t HWCDisplay::getPendingExpectedPresentTime() {
+    return mExpectedPresentTime;
+}
+
+void HWCDisplay::applyExpectedPresentTime() {
+    mExpectedPresentTime = 0;
+}
 } //namespace sdm

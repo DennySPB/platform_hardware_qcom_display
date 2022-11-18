@@ -66,7 +66,6 @@ using ::android::sp;
 using ::android::hardware::hidl_handle;
 using ::android::hardware::hidl_bitfield;
 using ::android::hardware::graphics::composer::V2_1::Error;
-
 using sdm::HWCSession;
 using sdm::Fence;
 
@@ -283,7 +282,8 @@ class QtiComposerClient : public IQtiComposerClient {
    public:
     explicit CommandReader(QtiComposerClient& client);
     Error parse();
-    Error validateDisplay(Display display, std::vector<Layer>& changedLayers,
+    Error validateDisplay(Display display,
+                          std::vector<Layer>& changedLayers,
                           std::vector<IComposerClient::Composition>& compositionTypes,
                           uint32_t& displayRequestMask, std::vector<Layer>& requestedLayers,
                           std::vector<uint32_t>& requestMasks,
@@ -318,6 +318,7 @@ class QtiComposerClient : public IQtiComposerClient {
     bool parseSetLayerVisibleRegion(uint16_t length);
     bool parseSetLayerZOrder(uint16_t length);
     bool parseSetLayerType(uint16_t length);
+    bool parseSetExpectedPresentTime(uint16_t length);
 
     // Commands from ::android::hardware::graphics::composer::V2_2::IComposerClient follow.
     bool parseSetLayerPerFrameMetadata(uint16_t length);

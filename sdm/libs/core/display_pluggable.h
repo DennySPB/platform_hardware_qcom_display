@@ -60,6 +60,10 @@ class DisplayPluggable : public DisplayBase, HWEventHandler {
   DisplayError colorSamplingOn() override;
   DisplayError colorSamplingOff() override;
 
+  DisplayError SetExpectedPresentTime(int64_t expectedPresentTime) {
+    return kErrorNone;
+  }
+
   // Implement the HWEventHandlers
   DisplayError VSync(int64_t timestamp) override;
   DisplayError Blank(bool blank) override { return kErrorNone; }

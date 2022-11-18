@@ -1828,4 +1828,9 @@ DisplayError DisplayBuiltIn::TeardownConcurrentWriteback() {
   return hw_intf_->TeardownConcurrentWriteback();
 }
 
+DisplayError DisplayBuiltIn::SetExpectedPresentTime(int64_t expectedPresentTime) {
+   hw_intf_->SetExpectedPresentTime(expectedPresentTime);
+  return kErrorNone;
+}
+
 }  // namespace sdm

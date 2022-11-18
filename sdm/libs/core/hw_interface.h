@@ -141,6 +141,8 @@ class HWInterface {
   virtual DisplayError GetFeatureSupportStatus(const HWFeature feature, uint32_t *status) = 0;
   virtual DisplayError TeardownConcurrentWriteback(void) = 0;
 
+  virtual DisplayError SetExpectedPresentTime(int64_t expectedPresentTime);
+
  protected:
   virtual ~HWInterface() { }
 };

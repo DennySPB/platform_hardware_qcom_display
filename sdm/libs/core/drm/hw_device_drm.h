@@ -212,6 +212,9 @@ class HWDeviceDRM : public HWInterface {
   void SetTUIState();
   void GetTopologySplit(HWTopology hw_topology, uint32_t *split_number);
   virtual DisplayError TeardownConcurrentWriteback(void) { return kErrorNotSupported; }
+  DisplayError SetExpectedPresentTime(int64_t expectedPresentTime);
+
+  int64_t expectedPresentTime;
 
   class Registry {
    public:

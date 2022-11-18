@@ -42,6 +42,7 @@
 #include "hwc_display_event_handler.h"
 #include "hwc_layers.h"
 #include "hwc_buffer_sync_handler.h"
+#include <utils/Timers.h>
 
 using android::hardware::graphics::common::V1_2::ColorMode;
 using android::hardware::graphics::common::V1_2::Dataspace;
@@ -256,11 +257,21 @@ class HWCDisplay : public DisplayEventHandler {
 
   virtual void SetCpuPerfHintLargeCompCycle() {};
 
-  virtual void updateRefreshRateHint() {};
 
   virtual bool VsyncEnablePending() {
     return false;
   }
+
+  // Libperfmgr Additions
+  virtual void updateRefreshRateHint() {};
+  nsecs_t mRetireFenceWaitTime = 0;
+  nsecs_t mRetireFenceAcquireTime = 0;
+
+  void applyExpectedPresentTime();
+  int64_t getPendingExpectedPresentTime();
+  void setExpectedPresentTime(int64_t timestamp);
+
+  nsecs_t mExpectedPresentTime = 0;
 
   // Display Configurations
   static uint32_t GetThrottlingRefreshRate() { return HWCDisplay::throttling_refresh_rate_; }
