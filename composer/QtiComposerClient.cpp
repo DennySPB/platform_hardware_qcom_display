@@ -91,7 +91,6 @@ QtiComposerClient::~QtiComposerClient() {
       destroyVirtualDisplay(dpy.first);
     } else {
       ALOGW("performing a final presentDisplay");
-
       std::vector<Layer> changedLayers;
       std::vector<IComposerClient::Composition> compositionTypes;
       uint32_t displayRequestMask = 0;
@@ -1225,6 +1224,9 @@ bool QtiComposerClient::CommandReader::parseCommonCmd(
   case IComposerClient::Command::PRESENT_OR_VALIDATE_DISPLAY:
     parsed = parsePresentOrValidateDisplay(length);
     break;
+  case IComposerClient::Command::SET_EXPECTED_PRESENT_TIME:
+    parsed = parseSetExpectedPresentTime(length);
+    break;
   case IComposerClient::Command::SET_LAYER_CURSOR_POSITION:
     parsed = parseSetLayerCursorPosition(length);
     break;
@@ -1508,7 +1510,7 @@ bool QtiComposerClient::CommandReader::parseValidateDisplay(uint16_t length) {
   std::vector<uint32_t> requestMasks;
   IComposerClient::ClientTargetProperty clientTargetProperty;
 
-  auto err = validateDisplay(mDisplay, changedLayers, compositionTypes, displayRequestMask,
+  auto err = validateDisplay(mDisplay,  changedLayers, compositionTypes, displayRequestMask,
                              requestedLayers, requestMasks, clientTargetProperty);
 
   if (static_cast<Error>(err) == Error::NONE) {
@@ -1541,7 +1543,7 @@ Error QtiComposerClient::CommandReader::presentDisplay(Display display,
                                                   shared_ptr<Fence>* presentFence,
                                                   std::vector<Layer>& layers,
                                                   std::vector<shared_ptr<Fence>>& releaseFences) {
-  int32_t err = mClient.hwc_session_->PresentDisplay(display, presentFence);
+  auto err = mClient.hwc_session_->PresentDisplay(display, presentFence);
   if (err != HWC2_ERROR_NONE) {
     return static_cast<Error>(err);
   }
@@ -1626,6 +1628,19 @@ bool QtiComposerClient::CommandReader::parsePresentOrValidateDisplay(uint16_t le
     }
   } else {
     mWriter.setError(getCommandLoc(), err);
+  }
+
+  return true;
+}
+
+bool QtiComposerClient::CommandReader::parseSetExpectedPresentTime(uint16_t length) {
+  if (length != CommandWriter::kSetExpectedPresentTimeLenght) {
+     return false;
+  }
+
+  auto err = mClient.hwc_session_->setExpectedPresentTime(mDisplay, read64Signed());
+  if (static_cast<Error>(err) == Error::NONE) {
+     return true;
   }
 
   return true;

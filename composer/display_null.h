@@ -128,6 +128,7 @@ class DisplayNull : public DisplayInterface {
   MAKE_NO_OP(GetCwbBufferResolution(CwbTapPoint, uint32_t *, uint32_t *))
   MAKE_NO_OP(NotifyDisplayCalibrationMode(bool))
   MAKE_NO_OP(TeardownConcurrentWriteback(void))
+  MAKE_NO_OP(SetExpectedPresentTime(int64_t expectedPresentTime));
 
  protected:
   DisplayConfigVariableInfo default_variable_config_ = {};

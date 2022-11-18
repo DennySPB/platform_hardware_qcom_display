@@ -179,6 +179,11 @@ class DisplayBase : public DisplayInterface {
     return kErrorNotSupported;
   }
 
+  virtual DisplayError SetExpectedPresentTime(int64_t expectedPresentTime) {
+    return kErrorNotSupported;
+  }
+
+
  protected:
   const char *kBt2020Pq = "bt2020_pq";
   const char *kBt2020Hlg = "bt2020_hlg";

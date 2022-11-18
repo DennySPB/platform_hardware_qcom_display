@@ -1497,6 +1497,14 @@ void HWDeviceDRM::SetupAtomic(Fence::ScopedRef &scoped_ref, HWLayers *hw_layers,
                               hw_layer_info.set_idle_time_ms);
   }
 
+//  DLOGI("DRM:ExpectedTime: %ld", expectedPresentTime);
+
+  if (expectedPresentTime != 0) {
+       drm_atomic_intf_->Perform(DRMOps::CRTC_SET_EXPECTED_PRESENT_TIME, token_.crtc_id,
+                              expectedPresentTime);
+       expectedPresentTime = 0;
+  }
+
   if (hw_panel_info_.mode == kModeCommand) {
     drm_atomic_intf_->Perform(DRMOps::CONNECTOR_SET_AUTOREFRESH, token_.conn_id, autorefresh_);
   }
@@ -1858,6 +1866,11 @@ bool HWDeviceDRM::EnableHotPlugDetection(int enable) {
 
 DisplayError HWDeviceDRM::SetCursorPosition(HWLayers *hw_layers, int x, int y) {
   DTRACE_SCOPED();
+  return kErrorNone;
+}
+
+DisplayError HWDeviceDRM::SetExpectedPresentTime(int64_t timestamp) {
+  expectedPresentTime = timestamp;
   return kErrorNone;
 }
 

@@ -164,6 +164,13 @@ class CommandWriter {
     endCommand();
   }
 
+  static constexpr uint16_t kSetExpectedPresentTimeLenght = 2;
+  void setExpectedPresentTime(int64_t expectedPresentTime) {
+    beginCommand(IQtiComposerClient::Command::SET_EXPECTED_PRESENT_TIME, kSetExpectedPresentTimeLenght);
+    write64Signed(expectedPresentTime);
+    endCommand();
+  }
+
   static constexpr uint32_t kPresentOrValidateDisplayResultLength = 1;
   void setPresentOrValidateResult(uint32_t state) {
     beginCommand(IQtiComposerClient::Command::SET_PRESENT_OR_VALIDATE_DISPLAY_RESULT,
@@ -557,6 +564,13 @@ class CommandWriter {
     write(hi);
   }
 
+  void write64Signed(int64_t val) {
+    int32_t lo = val & 0xffffffff;
+    int32_t hi = val >> 32;
+    writeSigned(lo);
+    writeSigned(hi);
+  }
+
   void writeRect(const IQtiComposerClient::Rect& rect) {
     writeSigned(rect.left);
     writeSigned(rect.top);
@@ -788,6 +802,12 @@ class CommandReaderBase {
     uint32_t lo = read();
     uint32_t hi = read();
     return (static_cast<uint64_t>(hi) << 32) | lo;
+  }
+
+  int64_t read64Signed() {
+    int32_t lo = readSigned();
+    int32_t hi = readSigned();
+    return (static_cast<int64_t>(hi) << 32) | lo;
   }
 
   void readBlob(uint32_t size, void* blob) {

@@ -811,6 +811,16 @@ void DRMCrtc::Perform(DRMOps code, drmModeAtomicReq *req, va_list args) {
                   crtc_cache_state, false /* cache */, tmp_prop_val_map_);
     } break;
 
+    case DRMOps::CRTC_SET_EXPECTED_PRESENT_TIME: {
+      if (!prop_mgr_.IsPropertyAvailable(DRMProperty::EXPECTED_PRESENT_TIME)) {
+          DRM_LOGE("Expected present prop NOT FOUND!!!");
+        return;
+      }
+      uint64_t expected_present_time = va_arg(args, uint64_t);
+      AddProperty(req, obj_id, prop_mgr_.GetPropertyId(DRMProperty::EXPECTED_PRESENT_TIME),
+                  expected_present_time, false /* cache */, tmp_prop_val_map_);
+    } break;
+
     case DRMOps::CRTC_SET_VM_REQ_STATE: {
       if (!prop_mgr_.IsPropertyAvailable(DRMProperty::VM_REQ_STATE)) {
         return;

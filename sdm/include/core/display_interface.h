@@ -1022,6 +1022,8 @@ class DisplayInterface {
 
   virtual DisplayError TeardownConcurrentWriteback(void) = 0;
 
+  virtual DisplayError SetExpectedPresentTime(int64_t expectedPresentTime) = 0;
+
  protected:
   virtual ~DisplayInterface() { }
 };

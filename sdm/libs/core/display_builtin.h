@@ -144,6 +144,7 @@ class DisplayBuiltIn : public DisplayBase, HWEventHandler, DppsPropIntf {
   DisplayError NotifyDisplayCalibrationMode(bool in_calibration) override;
   std::string Dump() override;
   DisplayError GetConfig(DisplayConfigFixedInfo *fixed_info) override;
+  DisplayError SetExpectedPresentTime(int64_t expectedPresentTime) override;
 
   // Implement the HWEventHandlers
   DisplayError VSync(int64_t timestamp) override;
