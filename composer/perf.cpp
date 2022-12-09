@@ -711,7 +711,7 @@ const bool Perf::PowerHalHintWorker::sNormalizeTarget =
         android::base::GetBoolProperty(std::string("debug.hwc.normalize_hint_session_durations"), false);
 
 const bool Perf::PowerHalHintWorker::sUseRateLimiter =
-        android::base::GetBoolProperty(std::string("debug.hwc.use_rate_limiter"), true);
+        android::base::GetBoolProperty(std::string("debug.hwc.use_rate_limiter"), false);
 
 Perf::PowerHalHintWorker::SharedDisplayData
         Perf::PowerHalHintWorker::sSharedDisplayData;
