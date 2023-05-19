@@ -50,6 +50,7 @@
 #define UI_FBID_LIMIT 4
 #define VIDEO_FBID_LIMIT 36
 #define OFFLINE_ROTATOR_FBID_LIMIT 2
+#define FOD_PRESSED_LAYER_ZORDER 0x20000000u
 
 using sde_drm::DRMPowerMode;
 namespace sdm {
