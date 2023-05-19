@@ -43,6 +43,8 @@
 #include "core/buffer_allocator.h"
 #include "hwc_buffer_allocator.h"
 
+#define FOD_PRESSED_LAYER_ZORDER 0x20000000u
+
 using PerFrameMetadataKey =
     android::hardware::graphics::composer::V2_3::IComposerClient::PerFrameMetadataKey;
 using vendor::qti::hardware::display::composer::V3_0::IQtiComposerClient;
